@@ -6,11 +6,11 @@ import Base: -, ^, ==
 import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, AbstractSciMLLinearOperator as LinearOperator
 using OrderedCollections
 
-export Time, Space, ℤ, ℝ, ℂ, ∞
+export Time, Space, ℤ, ℝ, ℂ, ∞, Qubit, Qubits
 
 const ℤ = Int
 const ℝ = Float64
-const ℂ = ComplexF64
+const ℂ = Complex{ℝ}
 
 const ∞ = Val(Inf)
 (-)(::Val{ Inf}) = Val(-Inf)
@@ -31,8 +31,11 @@ Base.isless(::Val{Inf}, ::Val{Inf}) = false
 Base.isless(::Val{-Inf}, x) = isless(-Inf, x)
 Base.isless(x, ::Val{-Inf}) = isless(x, -Inf)
 Base.isless(::Val{-Inf}, ::Val{-Inf}) = false
+(T::Type{<: AbstractFloat})(::Val{ Inf}) = T( Inf)
+(T::Type{<: AbstractFloat})(::Val{-Inf}) = T(-Inf)
+Base.convert(T::Type{<: AbstractFloat}, val::Union{Val{Inf}, Val{-Inf}}) = T(val)
 
-const Compactification{T} = Union{T, Val{-Inf}, Val{Inf}}
+const Compactification{T <: Number} = Union{T, Val{-Inf}, Val{Inf}}
 Base.typemin(::Type{>: Val{-Inf}}) = -∞
 Base.typemax(::Type{>: Val{ Inf}}) =  ∞
 
@@ -42,30 +45,53 @@ abstract type Coordinate{T <: Real} <: Operator{T} end
 
 struct Time <: Coordinate{ℝ} end
 
-Base.eps(x::Integer) = oneunit(x)
-
 mutable struct Space{T} <: Coordinate{T}
     const lower::Compactification{T}
     const upper::Compactification{T}
     const periodic::Bool
 
+    ε::real(ℂ)
+    α::T
+    samples::UnitRange{Int}
+
     indices::AbstractRange{T}
 
-    function Space{T}(lower::Compactification{T},
-                      upper::Compactification{T};
+    # v2: resample/interpolate when grid too large or not enough samples, along with minimum grid spacing, also optional samples option
+    function Space{T}(lower,
+                      upper;
                       periodic=false,
-                      step::Union{T, Nothing}=nothing) where T
+                      ε=1e-5, # Minimum complex modulus
+                      α=nothing,
+                      first=nothing,
+                      step::Union{T, Nothing}=nothing,
+                      last=nothing,
+                      samples::UnitRange{Int}=1:typemax(Int)) where T
         if (isinf(lower) || isinf(upper)) && periodic
             throw(ArgumentError("Unbounded space cannot be periodic"))
         end
         if lower == upper
             throw(ArgumentError("Null space"))
         end
-        new(min(lower, upper), max(lower, upper), periodic, step === 1 ? lower:upper : lower:step:upper)
+        lower, upper = min(lower, upper), max(lower, upper)
+        if isnothing(first)
+            first = isfinite(lower) ? lower : -5
+        end
+        if isnothing(last)
+            last = isfinite(upper) ? upper : 5
+        end
+        if isnothing(step)
+            step = T <: Integer ? one(T) : (upper - lower)/100
+        end
+        if isnothing(α)
+            α = step
+        end
+        new(lower, upper, periodic, ε, α, isone(step) ? first:last : first:step:last)
     end
 end
 Space(upper) = Space(zero(upper), upper)
 Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords...)
+Space(lower, upper, range::AbstractRange; keywords...) = Space(lower, upper; first=first(range), step=step(range), last=last(range), keywords...)
+Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); step=step(range), keywords...)
 Space{Bool}() = Space{Bool}(0, 1)
 
 struct ProductSpace{N, T} <: Operator{NTuple{N, T}}
@@ -89,7 +115,7 @@ const ∂  = Derivative{1}
 const ∂² = ∂^2
 const ∂³ = ∂^3
 (::Type{Derivative{1}})(wrt::Space{T <: AbstractFloat}) where T = FunctionOperator(isinplace=true, T) do (dψ, ψ, p, t)
-    dψ .= (diff([Periodic ? ψ[end] : zero(T); ψ]) + diff([a; wrt.periodic ? ψ[begin] : zero(T)]))/2
+    dψ .= (diff([wrt.periodic ? ψ[end] : zero(T); ψ]) + diff([a; wrt.periodic ? ψ[begin] : zero(T)]))/2
 end
 (::Type{Derivative{N}})(wrt::Space) where N = ∂(wrt)^N
 
@@ -148,7 +174,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     if !isdefined(:ψ₀)
         error("Must define initial state ψ₀")
     end
-    integrator = init(ODEProblem(H, ψ₀*ones(axes(H)), (0, ∞)))
+    integrator = init(ODEProblem(H, ψ₀*ones(axes(H)), (0, Inf)))
     for (ψ, t) in tuples(integrator)
         @show ψ, t
     end
