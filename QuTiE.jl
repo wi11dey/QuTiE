@@ -100,7 +100,8 @@ Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), las
 Space{Bool}() = Space{Bool}(0, 1)
 
 ==(a::Space, b::Space) = a === b
-Base.hash(a::Space) = objectid(a)
+Base.hash(space::Space) = objectid(space)
+Base.eltype(::Type{Space{T}}) where T = T
 
 struct Derivative{N} end
 (::Type{Derivative})(args...) = Derivative{1}(args...)
@@ -123,7 +124,7 @@ ProductSpace(factors::Union{Space, ProductSpace}...) = ProductSpace(AbstractTree
 getops(::Coordinate) = ()
 AbstractTrees.children(product::ProductSpace) = product.factors
 AbstractTrees.childtype(::Type{ProductSpace{N, T}}) where {N, T} = Space{T}
-AbstractTrees.childtype(::ProductSpace{N, T}) where {N, T} = AbstractTrees.childtype(ProductSpace{N, T})
+AbstractTrees.childtype(product::ProductSpace) = AbstractTrees.childtype(typeof(product))
 Base.getindex(product::ProductSpace, n) = product.factors[n]
 
 const × = ProductSpace
@@ -132,24 +133,50 @@ const Qubit = Space{Bool}
 const Qubits{N} = ProductSpace{N, Bool}
 
 const HigherDimensionalSpace{N} = NTuple{N, Space}
+
 Base.axes(op::Operator) = filter(x -> x isa Space, AbstractTrees.Leaves(op)) |> unique! |> Tuple
+
+function indicestype(T::Type{<: HigherDimensionalSpace})
+    eltypes = eltype.(T.types)
+    HigherDimensionalSpaceIndex{Union{eltypes...}, Tuple{(Pair{Space{elt}, elt} for elt in eltypes)...}}
+end
+indicestype(ax::HigherDimensionalSpace) = indicestype(typeof(ax))
+
+struct HigherDimensionalSpaceIndices{U, T <: NTuple{N}} <: AbstractArray{HigherDimensionalSpaceIndex{U, T}, N}
+    ax::HigherDimensionalSpace{N}
+
+    function (::Type{HigherDimensionalSpaceIndices})(ax::A) where A
+        new{indicestype(ax).parameters...}(ax)
+    end
+end
+
+struct HigherDimensionalSpaceIndex{U, T <: NTuple{N, Pair{Space{V}, V} where {V <: U}}} <: Base.AbstractCartesianIndex{N}
+    indices::IdDict{Space{U}, U}
+
+    HigherDimensionalSpaceIndex{U, T}(indices::T) where T = new{U, T}(IdDict(indices))
+    Base.getindex(i::HigherDimensionalSpaceIndex{U, T}, ax::HigherDimensionalSpace) where {U, T} = new{U, T}(filter(((x, _),) -> x ∈ ax, i.indices))
+end
+
+Base.getindex(i::HigherDimensionalSpaceIndex, space::Space) = i.indices[space]
+Base.getindex(i::HigherDimensionalSpaceIndex, spaces::Space...) = i[spaces]
 
 struct State{N} <: AbstractArray{ℂ, N}
     ax::HigherDimensionalSpace{N}
     data::Vector{ℂ}
+
+    dimensions::IdDict{Space, Int}
+
+    State(ax, data) = new(ax, data, ax |> enumerate .|> reverse |> IdDict)
 end
 Base.axes(ψ::State) = ψ.ax
 
-"""
-Tensor product of two states.
-"""
-function ⊗(ψ::State{N}, φ::State{M}) where {N, M}
-    ax = (axes(ψ)..., axes(φ)...)
-    State(ax, [ψ[i[begin:N]...]*φ[i[N + 1:end]...] for i in CartesianIndices(ax)])
-end
-⊗(ψ::State{N}, φ::State{M}, rest::State...) = ⊗(ψ ⊗ φ, rest...)
+Base.keytype(ψ::State) = indicestype(axes(ψ))
+Base.eachindex(ψ::State) = HigherDimensionalSpaceIndices(axes(ψ))
 
-Base.getindex(ψ::State{N}, inds::NTuple{N, Int}...) where N = ψ.data[LinearIndices(ax)[inds...]]
+function Base.getindex(ψ::State, indices::(Pair{Space{T}, Union{T, Colon}} where T)...)
+    
+end
+# Base.getindex(ψ::State{N}, inds::NTuple{N, Int}...) where N = ψ.data[LinearIndices(ax)[inds...]]
 
 Base.similar(::Type{State}, ax::HigherDimensionalSpace{N}) where N = similar(State{N}, ax)
 Base.similar(::Type{State{N}}, ax::HigherDimensionalSpace{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
@@ -159,6 +186,17 @@ Base.zeros(T::Type{ComplexF64}, ax::Tuple{Vararg{Space}}) = fill(zero(ComplexF64
 Base.ones( T::Type{ComplexF64}, ax::Tuple{Vararg{Space}}) = fill( one(ComplexF64), ax)
 Base.zeros(ax::Tuple{Vararg{Space}}) = zeros(ComplexF64, ax)
 Base.ones( ax::Tuple{Vararg{Space}}) =  ones(ComplexF64, ax)
+
+"""
+Tensor product of multiple states.
+"""
+function ⊗(Ψ::State...)
+    φ = similar(State, Ψ .|> axes |> Iterators.flatten |> Tuple)
+    for i in eachindex(φ)
+        φ[i] = prod(ψ[i[axes(ψ)]] for ψ in Ψ)
+    end
+    φ
+end
 
 end
 
