@@ -5,6 +5,7 @@ module QuTiE
 import Base: -, ^, ==
 import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, AbstractSciMLLinearOperator as LinearOperator, getops
 import AbstractTrees
+using LinearAlgebra
 
 export Time, Space, ℤ, ℝ, ℂ, ∞, Qubit, Qubits
 
@@ -186,12 +187,13 @@ Base.ones( ax::Tuple{Vararg{Space}}) =  ones(ComplexF64, ax)
 """
 Tensor product of multiple states.
 """
-function ⊗(Ψ::State...)
-    φ = similar(State, Ψ .|> axes |> Iterators.flatten |> Tuple)
-    for i in eachindex(φ)
-        φ[i] = prod(ψ[i[axes(ψ)]] for ψ in Ψ)
+Base.kron(ψ::State, φ::State) = State((axes(ψ), axes(φ)...), kron(ψ.data, φ.data))
+const ⊗ = kron
+
+function LinearAlgebra.dot(ψ::State, φ::State)
+    if axes(ψ) == axes(φ)
+        return ψ.data⋅φ.data
     end
-    φ
 end
 
 end
