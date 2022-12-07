@@ -76,9 +76,9 @@ mutable struct Space{T} <: Coordinate{T}
 
         lower, upper = min(lower, upper), max(lower, upper)
 
-        isnothing(first) && first = isfinite(lower) ? lower : -5
-        isnothing(last)  && last  = isfinite(upper) ? upper :  5
-        isnothing(step) && step = T <: Integer ? one(T) : (upper - lower)/100
+        isnothing(first) && (first = isfinite(lower) ? lower : -5)
+        isnothing(last)  && (last  = isfinite(upper) ? upper :  5)
+        isnothing(step) && (step = T <: Integer ? one(T) : (upper - lower)/100)
 
         new(
             lower,
@@ -89,7 +89,7 @@ mutable struct Space{T} <: Coordinate{T}
             ε,
             samples,
 
-            isone(step) ? first:last : first:step:last
+            isone(step) ? (first:last) : (first:step:last)
         )
     end
 end
@@ -109,7 +109,7 @@ struct Derivative{N} end
 const ∂  = Derivative{1}
 const ∂² = ∂^2
 const ∂³ = ∂^3
-(::Type{Derivative{1}})(wrt::Space{T <: AbstractFloat}) where T = FunctionOperator(isinplace=true, T) do (dψ, ψ, p, t)
+(::Type{Derivative{1}})(wrt::Space{T}) where {T <: AbstractFloat} = FunctionOperator(isinplace=true, T) do (dψ, ψ, p, t)
     dψ .= (diff([wrt.periodic ? ψ[end] : zero(T); ψ]) + diff([a; wrt.periodic ? ψ[begin] : zero(T)]))/2
 end
 (::Type{Derivative{N}})(wrt::Space) where N = ∂(wrt)^N
@@ -136,29 +136,24 @@ const HigherDimensionalSpace{N} = NTuple{N, Space}
 
 Base.axes(op::Operator) = filter(x -> x isa Space, AbstractTrees.Leaves(op)) |> unique! |> Tuple
 
-function indicestype(T::Type{<: HigherDimensionalSpace})
-    eltypes = eltype.(T.types)
-    HigherDimensionalSpaceIndex{Union{eltypes...}, Tuple{(Pair{Space{elt}, elt} for elt in eltypes)...}}
-end
-indicestype(ax::HigherDimensionalSpace) = indicestype(typeof(ax))
+struct HigherDimensionalSpaceIndex{N} <: Base.AbstractCartesianIndex{N}
+    indices::IdDict{Space, Real}
 
-struct HigherDimensionalSpaceIndices{U, T <: NTuple{N}} <: AbstractArray{HigherDimensionalSpaceIndex{U, T}, N}
-    ax::HigherDimensionalSpace{N}
-
-    function (::Type{HigherDimensionalSpaceIndices})(ax::A) where A
-        new{indicestype(ax).parameters...}(ax)
+    function (::Type{HigherDimensionalSpaceIndex})(indices::(Pair{Space{T}, T} where T)...)
+        indices = IdDict{Space, Real}(args...)
+        new{length(indices)}(indices)
+    end
+    function Base.getindex(i::HigherDimensionalSpaceIndex, ax::HigherDimensionalSpace)
+        indices = filter(((space, _),) -> space ∈ ax, i.indices)
+        new{length(indices)}(indices)
     end
 end
-
-struct HigherDimensionalSpaceIndex{U, T <: NTuple{N, Pair{Space{V}, V} where {V <: U}}} <: Base.AbstractCartesianIndex{N}
-    indices::IdDict{Space{U}, U}
-
-    HigherDimensionalSpaceIndex{U, T}(indices::T) where T = new{U, T}(IdDict(indices))
-    Base.getindex(i::HigherDimensionalSpaceIndex{U, T}, ax::HigherDimensionalSpace) where {U, T} = new{U, T}(filter(((x, _),) -> x ∈ ax, i.indices))
-end
-
+Base.getindex(i::HigherDimensionalSpaceIndex, ax::Space...) = i[ax]
 Base.getindex(i::HigherDimensionalSpaceIndex, space::Space) = i.indices[space]
-Base.getindex(i::HigherDimensionalSpaceIndex, spaces::Space...) = i[spaces]
+
+struct HigherDimensionalSpaceIndices{N} <: AbstractArray{HigherDimensionalSpaceIndex{N}, N}
+    ax::HigherDimensionalSpace{N}
+end
 
 struct State{N} <: AbstractArray{ℂ, N}
     ax::HigherDimensionalSpace{N}
@@ -166,17 +161,18 @@ struct State{N} <: AbstractArray{ℂ, N}
 
     dimensions::IdDict{Space, Int}
 
-    State(ax, data) = new(ax, data, ax |> enumerate .|> reverse |> IdDict)
+    State{N}(ax::HigherDimensionalSpace{N}, data) where N = new{N}(ax, data, ax |> enumerate .|> reverse |> IdDict)
 end
 Base.axes(ψ::State) = ψ.ax
 
-Base.keytype(ψ::State) = indicestype(axes(ψ))
+Base.keytype(ψ::State{N}) where N = HigherDimensionalSpaceIndex{N}
 Base.eachindex(ψ::State) = HigherDimensionalSpaceIndices(axes(ψ))
 
-function Base.getindex(ψ::State, indices::(Pair{Space{T}, Union{T, Colon}} where T)...)
-    
-end
-# Base.getindex(ψ::State{N}, inds::NTuple{N, Int}...) where N = ψ.data[LinearIndices(ax)[inds...]]
+Base.to_index(ψ::State, i::Pair{Space{T}, T} where T) = nothing
+Base.to_index(ψ::State, i::Pair{Space{T}, Colon} where T) = nothing
+Base.to_indices(ψ::State, ax::HigherDimensionalSpace, indices::Tuple{Vararg{Pair{Space{T}, Union{T, Colon}} where T}}) = nothing
+Base.getindex(ψ::State, indices::(Pair{Space{T}, Union{T, Colon}} where T)...) =
+    ψ.data[LinearIndices(eachindex.(Base.getfield.(axes(ψ), :indices)))[to_indices(ψ, indices)]]
 
 Base.similar(::Type{State}, ax::HigherDimensionalSpace{N}) where N = similar(State{N}, ax)
 Base.similar(::Type{State{N}}, ax::HigherDimensionalSpace{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
@@ -202,8 +198,15 @@ end
 
 using ..QuTiE
 using Revise
-using PhysicalConstants.CODATA2018
 using DifferentialEquations
+
+using PhysicalConstants: CODATA2018, PhysicalConstant
+for name in names(CODATA2018, all=true)
+    @eval if CODATA2018.$name isa PhysicalConstant
+        import PhysicalConstants.CODATA2018: $name
+        export $name
+    end
+end
 
 export ħ²
 ħ² = ħ^2
