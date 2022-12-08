@@ -216,7 +216,7 @@ export ħ²
 __revise_mode__ = :evalassign
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    if length(ARGS) < 1
+    if length(ARGS) != 1 || ARGS[1] ∈ ("-h", "--help", "-?")
         error("Usage: julia QuTiE.jl spec.jl")
     end
     includet(ARGS[1])
