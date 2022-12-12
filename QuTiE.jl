@@ -135,26 +135,23 @@ const Qubits{N} = ProductSpace{N, Bool}
 
 const HigherDimensionalSpace{N} = NTuple{N, Space}
 
-Base.axes(op::Operator) = filter(x -> x isa Space, AbstractTrees.Leaves(op)) |> unique! |> Tuple
+Base.axes(op::Operator) = Tuple(unique!(Base.Fix2(isa, Space), collect(AbstractTrees.Leaves(op))))
 
-struct HigherDimensionalSpaceIndex{N} <: Base.AbstractCartesianIndex{N}
-    indices::IdDict{Space, Real}
+struct HigherDimensionalSpaceIndex{T <: NTuple{N, Real}} <: Base.AbstractCartesianIndex{N}
+    ax::HigherDimensionalSpace{N}
+    indices::T
 
-    function (::Type{HigherDimensionalSpaceIndex})(indices::(Pair{Space{T}, T} where T)...)
-        indices = IdDict{Space, Real}(args...)
-        new{length(indices)}(indices)
-    end
-    function Base.getindex(i::HigherDimensionalSpaceIndex, ax::HigherDimensionalSpace)
-        indices = filter(((space, _),) -> space ∈ ax, i.indices)
-        new{length(indices)}(indices)
-    end
+    (::Type{HigherDimensionalSpaceIndex})(ax::HigherDimensionalSpace{N}, indices::NTuple{N, Real}) where N =
+        new{Tuple{eltype.(typeof(ax).types)...}}(ax, indices)
 end
-Base.getindex(i::HigherDimensionalSpaceIndex, ax::Space...) = i[ax]
-Base.getindex(i::HigherDimensionalSpaceIndex, space::Space) = i.indices[space]
+Base.keys(i::HigherDimensionalSpaceIndex) = i.ax
+Base.values(i::HigherDimensionalSpaceIndex) = i.indices
+Base.pairs(i::HigherDimensionalSpaceIndex) = Iterators.map(=>, keys(i), values(i))
 
 struct HigherDimensionalSpaceIndices{N} <: AbstractArray{HigherDimensionalSpaceIndex{N}, N}
     ax::HigherDimensionalSpace{N}
 end
+LinearIndices(indices::HigherDimensionalSpaceIndices)
 
 struct State{N} <: AbstractArray{ℂ, N}
     ax::HigherDimensionalSpace{N}
@@ -171,9 +168,13 @@ Base.eachindex(ψ::State) = HigherDimensionalSpaceIndices(axes(ψ))
 
 Base.to_index(ψ::State, i::Pair{Space{T}, T} where T) = nothing
 Base.to_index(ψ::State, i::Pair{Space{T}, Colon} where T) = nothing
+Base.to_indices(ψ::State, i::HigherDimensionalSpaceIndex) = values(i)
 Base.to_indices(ψ::State, ax::HigherDimensionalSpace, indices::Tuple{Vararg{Pair{Space{T}, Union{T, Colon}} where T}}) = nothing
-Base.getindex(ψ::State, indices::(Pair{Space{T}, Union{T, Colon}} where T)...) =
-    ψ.data[LinearIndices(eachindex.(Base.getfield.(axes(ψ), :indices)))[to_indices(ψ, indices)]]
+function Base.getindex(ψ::State, i::HigherDimensionalSpaceIndex)
+    ψ.data[LinearIndices(eachindex.(Base.getfield.(axes(ψ), :indices)))[i.values...]]
+end
+Base.getindex(ψ::State, indices::(Pair{Space{T}, <: Union{T, AbstractRange{T}, Colon}} where T)...) =
+    ψ[HigherDimensionalSpaceIndex(axes(ψ), to_indices(ψ, indices))]
 
 Base.similar(::Type{State}, ax::HigherDimensionalSpace{N}) where N = similar(State{N}, ax)
 Base.similar(::Type{State{N}}, ax::HigherDimensionalSpace{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
