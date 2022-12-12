@@ -7,7 +7,7 @@ import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOpe
 import AbstractTrees
 using LinearAlgebra
 
-export Time, Space, ℤ, ℝ, ℂ, ∞, Qubit, Qubits
+export Time, Space, ℤ, ℝ, ℂ, ∞, Qubit, qubits
 
 const ℤ = Int
 const ℝ = Float64
@@ -47,7 +47,6 @@ abstract type Coordinate{T <: Real} <: Operator{T} end
 depends(op::Operator, x::Coordinate) = x ∈ AbstractTrees.Leaves(op)
 
 getops(::Coordinate) = ()
-AbstractTrees.children(::Coordinate) = ()
 
 struct Time <: Coordinate{ℝ} end
 
@@ -62,6 +61,7 @@ mutable struct Space{T} <: Coordinate{T}
     samples::UnitRange{Int}
 
     indices::AbstractRange{T}
+    border::T
 
     function Space{T}(lower,
                       upper;
@@ -70,7 +70,7 @@ mutable struct Space{T} <: Coordinate{T}
                       step=nothing,
                       last=nothing,
                       α=nothing, # Scale factor (maximum grid spacing).
-                      ε=1e-5, # Minimum complex modulus.
+                      ε=1e-5, # Minimum modulus.
                       samples=1:typemax(Int) #= Minimum and maximum number of samples. =#) where T
         (isinf(lower) || isinf(upper)) && periodic && throw(ArgumentError("Unbounded space cannot be periodic"))
         lower == upper && throw(ArgumentError("Null space"))
@@ -115,56 +115,43 @@ const ∂³ = ∂^3
 end
 (::Type{Derivative{N}})(wrt::Space) where N = ∂(wrt)^N
 
-struct ProductSpace{N, T} <: Operator{NTuple{N, T}}
-    factors::NTuple{N, Space{T}}
-end
-ProductSpace{N, T}() where {N, T} = ProductSpace{N, T}(ntuple(_ -> Space{T}(), Val{N}))
-ProductSpace(factors::Space...) = ProductSpace(factors)
-ProductSpace(factors::Union{Space, ProductSpace}...) = ProductSpace(AbstractTrees.Leaves(factors)...)
-
-getops(::Coordinate) = ()
-AbstractTrees.children(product::ProductSpace) = product.factors
-AbstractTrees.childtype(::Type{ProductSpace{N, T}}) where {N, T} = Space{T}
-AbstractTrees.childtype(product::ProductSpace) = AbstractTrees.childtype(typeof(product))
-Base.getindex(product::ProductSpace, n) = product.factors[n]
-
-const × = ProductSpace
+const ProductSpace{N} = NTuple{N, Space}
+@inline ×(factors::Union{Space, ProductSpace}...) = ProductSpace(AbstractTrees.Leaves(factors))
 
 const Qubit = Space{Bool}
-const Qubits{N} = ProductSpace{N, Bool}
-
-const HigherDimensionalSpace{N} = NTuple{N, Space}
+qubits(val::Val) = ntuple(_ -> Qubit(), val)
+qubits(n) = qubits(Val(n))
 
 Base.axes(op::Operator) = Tuple(unique!(Base.Fix2(isa, Space), collect(AbstractTrees.Leaves(op))))
 
-struct HigherDimensionalSpaceIndex{T <: NTuple{N, Real}} <: Base.AbstractCartesianIndex{N}
-    ax::HigherDimensionalSpace{N}
+struct Point{T <: NTuple{N, Real}} <: Base.AbstractCartesianIndex{N}
+    ax::ProductSpace{N}
     indices::T
 
-    (::Type{HigherDimensionalSpaceIndex})(ax::HigherDimensionalSpace{N}, indices::NTuple{N, Real}) where N =
+    @inline (::Type{Point})(ax::ProductSpace{N}, indices::NTuple{N, Real}) where N =
         new{Tuple{eltype.(typeof(ax).types)...}}(ax, indices)
 end
-Base.keys(i::HigherDimensionalSpaceIndex) = i.ax
-Base.values(i::HigherDimensionalSpaceIndex) = i.indices
-Base.pairs(i::HigherDimensionalSpaceIndex) = Iterators.map(=>, keys(i), values(i))
+Base.keys(i::Point) = i.ax
+Base.values(i::Point) = i.indices
+Base.pairs(i::Point) = Iterators.map(=>, keys(i), values(i))
 
-struct HigherDimensionalSpaceIndices{N} <: AbstractArray{HigherDimensionalSpaceIndex{N}, N}
-    ax::HigherDimensionalSpace{N}
+struct Subspace{N} <: AbstractArray{Point{N}, N}
+    ax::ProductSpace{N}
 end
-LinearIndices(indices::HigherDimensionalSpaceIndices)
+LinearIndices(indices::Subspace)
 
 struct State{N} <: AbstractArray{ℂ, N}
-    ax::HigherDimensionalSpace{N}
+    ax::ProductSpace{N}
     data::Vector{ℂ}
 
     dimensions::IdDict{Space, Int}
 
-    State{N}(ax::HigherDimensionalSpace{N}, data) where N = new{N}(ax, data, ax |> enumerate .|> reverse |> IdDict)
+    State{N}(ax::ProductSpace{N}, data) where N = new{N}(ax, data, ax |> enumerate .|> reverse |> IdDict)
 end
 Base.axes(ψ::State) = ψ.ax
 
 Base.keytype(ψ::State{N}) where N = HigherDimensionalSpaceIndex{N}
-Base.eachindex(ψ::State) = HigherDimensionalSpaceIndices(axes(ψ))
+Base.eachindex(ψ::State) = Subspace(axes(ψ))
 
 Base.to_index(ψ::State, i::Pair{Space{T}, T} where T) = nothing
 Base.to_index(ψ::State, i::Pair{Space{T}, Colon} where T) = nothing
@@ -176,19 +163,25 @@ end
 Base.getindex(ψ::State, indices::(Pair{Space{T}, <: Union{T, AbstractRange{T}, Colon}} where T)...) =
     ψ[HigherDimensionalSpaceIndex(axes(ψ), to_indices(ψ, indices))]
 
-Base.similar(::Type{State}, ax::HigherDimensionalSpace{N}) where N = similar(State{N}, ax)
-Base.similar(::Type{State{N}}, ax::HigherDimensionalSpace{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
+Base.similar(::Type{State}, ax::ProductSpace{N}) where N = similar(State{N}, ax)
+Base.similar(::Type{State{N}}, ax::ProductSpace{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
 
-Base.fill(value::ComplexF64, ax::Tuple{Vararg{Space}}) = fill!(similar(State, ax), value)
-Base.zeros(T::Type{ComplexF64}, ax::Tuple{Vararg{Space}}) = fill(zero(ComplexF64), ax)
-Base.ones( T::Type{ComplexF64}, ax::Tuple{Vararg{Space}}) = fill( one(ComplexF64), ax)
-Base.zeros(ax::Tuple{Vararg{Space}}) = zeros(ComplexF64, ax)
-Base.ones( ax::Tuple{Vararg{Space}}) =  ones(ComplexF64, ax)
+Base.fill(value::ComplexF64, ax::ProductSpace) = fill!(similar(State, ax), value)
+Base.zeros(T::Type{ComplexF64}, ax::ProductSpace) = fill(zero(ComplexF64), ax)
+Base.ones( T::Type{ComplexF64}, ax::ProductSpace) = fill( one(ComplexF64), ax)
+Base.zeros(ax::ProductSpace) = zeros(ComplexF64, ax)
+Base.ones( ax::ProductSpace) =  ones(ComplexF64, ax)
+
+function trim!(ψ::State)
+end
+
+function LinearAlgebra.normalize!(ψ::State)
+end
 
 """
 Tensor product of multiple states.
 """
-Base.kron(ψ::State, φ::State) = State((axes(ψ), axes(φ)...), kron(ψ.data, φ.data))
+Base.kron(ψ::State, φ::State) = State(axes(ψ) × axes(φ), kron(ψ.data, φ.data))
 const ⊗ = kron
 
 function LinearAlgebra.dot(ψ::State, φ::State)
