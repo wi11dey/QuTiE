@@ -6,14 +6,22 @@ import Base: -, ^, ==
 import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, AbstractSciMLLinearOperator as LinearOperator, getops
 import AbstractTrees
 using LinearAlgebra
+# using ModelingToolkit, SymbolicUtils # v4/5
+# using MarchingCubes, ConstructiveGeometry, Compose # v6/7
 
-export Time, Space, ℤ, ℝ, ℂ, ∞, Qubit, qubits, depends, isbounded
+export Time, Space, ℤ, ℚ, ℝ, ℂ, 𝑖, ∜, ∞, ∂, ∂², ∂³, δ, Qubit, qubits, depends, isbounded, isclassical
 
+# Concrete types for abstract algebraic rings:
 const ℤ = Int
+const ℚ = Rational
 const ℝ = Float64
 const ℂ = Complex{ℝ}
 
-const Field = Union{Rational, AbstractFloat}
+const 𝑖 = im
+
+∜(x::ℝ) = x^(1/4)
+
+const Field = Union{ℚ, AbstractFloat} # In the abstract algebraic sense.
 
 const ∞ = Val(Inf)
 (-)(::Val{ Inf}) = Val(-Inf)
@@ -37,6 +45,8 @@ Base.isless(::Val{-Inf}, ::Val{-Inf}) = false
 (T::Type{<: Field})(::Val{ Inf}) = T( Inf)
 (T::Type{<: Field})(::Val{-Inf}) = T(-Inf)
 Base.convert(T::Type{<: Field}, val::Union{Val{Inf}, Val{-Inf}}) = T(val)
+Base.promote_rule(T::Type{<: Field},   ::Type{<: Union{Val{Inf}, Val{-Inf}}}) = T
+Base.promote_rule(T::Type{<: Integer}, ::Type{<: Union{Val{Inf}, Val{-Inf}}}) = AbstractFloat
 
 const Compactification{T <: Number} = Union{T, Val{-Inf}, Val{Inf}}
 Base.typemin(::Type{>: Val{-Inf}}) = -∞
@@ -52,11 +62,13 @@ depends(op::Operator, x::Coordinate) = x ∈ AbstractTrees.Leaves(op)
 getops(::Coordinate) = ()
 
 struct Time <: Coordinate{ℝ} end
+isclassical(::Time) = true # N + 1 dimensional formulation.
 
 mutable struct Space{T} <: Coordinate{T}
     const lower::Compactification{T}
     const upper::Compactification{T}
     const periodic::Bool
+    const classical::Bool # ℂ^|T| Hilbert space if false.
 
     # v2: resample/interpolate when grid too large or not enough samples
     const a::Union{T, Nothing} # (Maximum) lattice spacing.
@@ -66,6 +78,7 @@ mutable struct Space{T} <: Coordinate{T}
     function Space{T}(lower,
                       upper;
                       periodic=false,
+                      classical=false, # v6
                       first=nothing,
                       step=nothing,
                       last=nothing,
@@ -77,20 +90,15 @@ mutable struct Space{T} <: Coordinate{T}
 
         lower, upper = min(lower, upper), max(lower, upper)
 
-        isnothing(first) && (first = isfinite(lower) ? lower : -5)
-        isnothing(last)  && (last  = isfinite(upper) ? upper :  5)
-        isnothing(step) && (step = T <: Integer ? one(T) : (upper - lower)/100)
-
         new(
             lower,
             upper,
             periodic,
+            classical,
 
             a,
             ε,
             samples,
-
-            isone(step) ? (first:last) : (first:step:last)
         )
     end
 end
@@ -110,10 +118,11 @@ Base.in(x, space::Space) = first(space) ≤ x ≤ last(space)
 isbounded(space::Space) = isfinite(first(space)) && isfinite(last(space))
 Base.isfinite(space::Space) = bounded(space) && eltype(space) <: Integer
 Base.isinf(space::Space) = !isfinite(space)
+isclassical(space::Space) = space.classical
 
 const Qubit = Space{Bool}
 qubits(val::Val) = ntuple(_ -> Qubit(), val)
-qubits(n) = qubits(Val(n))
+qubits(n::Integer) = qubits(Val(n))
 
 struct Derivative{N} end
 (::Type{Derivative})(args...) = Derivative{1}(args...)
@@ -121,17 +130,26 @@ struct Derivative{N} end
 const ∂  = Derivative{1}
 const ∂² = ∂^2
 const ∂³ = ∂^3
-(::Type{Derivative{1}})(wrt::Space{T}) where {T <: Field} = FunctionOperator(isinplace=true, T) do (dψ, ψ, p, t)
+(::Type{Derivative{1}})(wrt::Space{T}) where {T <: AbstractFloat} = FunctionOperator(isinplace=true, T) do (dψ, ψ, p, t)
     dψ .= (diff([wrt.periodic ? ψ[end] : zero(T); ψ]) + diff([a; wrt.periodic ? ψ[begin] : zero(T)]))/2
 end
 (::Type{Derivative{N}})(wrt::Space) where N = ∂(wrt)^N
 
-struct Point{T <: NTuple{N, Real}} <: Base.AbstractCartesianIndex{N}
+struct DiracDelta <: Operator{Union{typeof(∞), Nothing}}
+    variety::Operator # Algebraic variety.
+end
+const δ = DiracDelta
+
+# v4/5?
+commutator(a::Operator, b::Operator) = nothing
+anticommutator(a::Operator, b::Operator) = nothing
+
+struct Point{N, T <: NTuple{N, Real}} <: Base.AbstractCartesianIndex{N}
     ax::ProductSpace{N}
     coords::T
 
     @inline (::Type{Point})(ax::ProductSpace{N}, indices::NTuple{N, Real}) where N =
-        new{Tuple{eltype.(typeof(ax).types)...}}(ax, indices)
+        new{N, Tuple{eltype.(typeof(ax).types)...}}(ax, indices)
 end
 Base.keys(i::Point) = i.ax
 Base.values(i::Point) = i.indices
@@ -140,7 +158,6 @@ Base.pairs(i::Point) = Iterators.map(=>, keys(i), values(i))
 struct SpatialRange{T} <: AbstractRange{T}
     space::Space{T}
     indices::AbstractRange{T}
-    canary::T
 end
 SpatialRange(space::Space{T}, indices::AbstractRange{T}) where T =
     SpatialRange(space, indices, first(space) == first(indices) && last(space) == last(indices) ? zero(T) : step(indices))
@@ -163,6 +180,7 @@ Base.eltype(::Type{<: AbstractTrees.TreeIterator{<: Region}}) = SpatialRange
 
 # v3: function boundary detection by binary search
 # v4: symbolic function boundary detection
+# v4/5: intelligently select first dimension symbolically
 Base.axes(op::Operator) = Region(unique!(Base.Fix2(isa, Space), collect(AbstractTrees.Leaves(op))))
 
 struct Points{N} <: AbstractArray{Point{N}, N}
@@ -193,8 +211,8 @@ end
 Base.getindex(ψ::State, indices::(Pair{Space{T}, <: Union{T, AbstractRange{T}, Colon}} where T)...) =
     ψ[HigherDimensionalSpaceIndex(axes(ψ), to_indices(ψ, indices))]
 
-Base.similar(::Type{State}, ax::ProductSpace{N}) where N = similar(State{N}, ax)
-Base.similar(::Type{State{N}}, ax::ProductSpace{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
+Base.similar(::Type{State}, ax::Region{N}) where N = similar(State{N}, ax)
+Base.similar(::Type{State{N}}, ax::Region{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
 
 Base.fill(value::ComplexF64, ax::Region) = fill!(similar(State, ax), value)
 Base.zeros(T::Type{ComplexF64}, ax::Region) = fill(zero(ComplexF64), ax)
@@ -202,12 +220,10 @@ Base.ones( T::Type{ComplexF64}, ax::Region) = fill( one(ComplexF64), ax)
 Base.zeros(ax::Region) = zeros(ComplexF64, ax)
 Base.ones( ax::Region) =  ones(ComplexF64, ax)
 
-function trim!(ψ::State{1})
-    r = axes(ψ)[1]
-end
 function trim!(ψ::State)
-    for axis in axes(ψ)
-        
+    r = axes(ψ)[1]
+    while abs(ψ.data[begin]) < ψ.ε
+        popfirst!(ψ.data)
     end
 end
 
@@ -217,7 +233,7 @@ end
 """
 Tensor product of multiple states.
 """
-Base.kron(ψ::State, φ::State) = State(axes(ψ) × axes(φ), kron(ψ.data, φ.data))
+Base.kron(ψ::State, φ::State) = State(axes(ψ)×axes(φ), kron(ψ.data, φ.data))
 const ⊗ = kron
 
 function LinearAlgebra.dot(ψ::State, φ::State)
@@ -226,13 +242,47 @@ function LinearAlgebra.dot(ψ::State, φ::State)
     end
 end
 
+using MakieCore
+
+# v3
+"""Returns the unique Lagrangian with gauge group U(n) and coupling constant g in terms of the given spaces."""
+U(::Val{N}; g, spaces...) where N = nothing
+U(n::Integer; args...) = U(Val(n); args...)
+
+"""Returns the unique Lagrangian with gauge group SU(n) and coupling constant g in terms of the given spaces."""
+SU(::Val{N}; g, spaces...) where N = nothing
+SU(n::Integer; args...) = SU(Val(n); args...)
+
+"""Returns the unique Lagrangian with gauge group SO(n) and coupling constant g in terms of the given spaces."""
+SO(::Val{N}; g, spaces...) where N = nothing
+SO(n::Integer; args...) = SO(Val(n); args...)
+
+# v6
+abstract type ClassicalObject end
+
+# Propagate until reflection using Huygens' principle in N dimensions:
+abstract type Wave{N} <: ClassicalObject end # For classical field theory.
+struct PlaneWave{N} <: Wave{N} end
+struct SphericalWave{N} <: Wave{N} end
+
+# Solve using Euler-Lagrange equation in N generalized coordinates:
+abstract type Particle{N} <: ClassicalObject end # For classical mechanics.
+
 end
 
 using ..QuTiE
-using Revise
 using DifferentialEquations
-
+using AlgebraOfGraphics
+using LaTeXStrings
+using Makie
+try
+    using GLMakie
+catch
+    using CairoMakie
+end
+using Revise
 using PhysicalConstants: CODATA2018, PhysicalConstant
+
 for name in names(CODATA2018, all=true)
     @eval if CODATA2018.$name isa PhysicalConstant
         import PhysicalConstants.CODATA2018: $name
@@ -240,23 +290,68 @@ for name in names(CODATA2018, all=true)
     end
 end
 
-export ħ²
-ħ² = ħ^2
+const ħ² = ħ^2
 
 __revise_mode__ = :evalassign
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    if length(ARGS) != 1 || ARGS[1] ∈ ("-h", "--help", "-?")
-        error("Usage: julia QuTiE.jl spec.jl")
+    if length(ARGS) ≠ 1 || ARGS[1] ∈ ("-h", "--help", "-?")
+        error("Usage: ./$PROGRAM_FILE spec.jl")
     end
     includet(ARGS[1])
-    if !isdefined(:H)
-        error("Must define H for Hamiltonian formulation")
-    end
     if !isdefined(:ψ₀)
         error("Must define initial state ψ₀")
     end
-    integrator = init(ODEProblem(H, ψ₀*ones(axes(H)), (0, Inf)))
+    if isdefined(:H) || isdefined(:ℋ)
+        if isdefined(:H) && isdefined(:ℋ)
+            error("Cannot define both H and ℋ")
+        end
+        if isdefined(:L) || isdefined(:ℒ)
+            error("Cannot define both Hamiltonian and Lagrangian")
+        end
+        if isdefined(:ℋ)
+            # Canonicalize:
+            H = ℋ
+        end
+        # Hamiltonian formulation:
+        ψ = Observable([ψ₀*ones(axes(H))])
+        integrator = init(ODEProblem(-im*H/ħ, ψ[][begin], (0, ∞)))
+    end
+    if isdefined(:L) || isdefined(:ℒ)
+        if isdefined(:L) && isdefined(:ℒ)
+            error("Cannot define both L and ℒ")
+        end
+        if isdefined(:H) || isdefined(:ℋ)
+            error("Cannot define both Lagrangian and Hamiltonian")
+        end
+        if isdefined(:ℒ)
+            # Canonicalize:
+            L = ℒ
+        end
+        # v2: Lagrangian formulation
+    end
+    if !isdefined(:📊) && isdefined(:output)
+        📊 = output
+    end
+    if !isdefined(:📊)
+        📊 = visual(Wireframe)
+    end
+    if isdefined(:x)
+        # Cartesian default.
+        if isdefined(:y)
+            if isdefined(:z)
+            end
+        end
+    elseif isdefined(:r) || isdefined(:ρ)
+        if isdefined(:θ) && isdefined(:φ)
+            # Spherical default.
+        elseif (isdefined(:θ) || isdefined(:φ)) && isdefined(:z)
+            #
+        end
+    elseif
+    end
+    ψ = Observable(ψ₀*ones(axes(H)))
+    draw(data(ψ)*📊)
     for (ψ, t) in tuples(integrator)
         @show ψ, t
     end
