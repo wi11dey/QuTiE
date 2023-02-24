@@ -9,7 +9,7 @@ using LinearAlgebra
 # using ModelingToolkit, SymbolicUtils # v4/5
 # using MarchingCubes, ConstructiveGeometry, Compose # v6/7
 
-export Time, Space, ℤ, ℚ, ℝ, ℂ, 𝑖, ∜, ∞, ∂, ∂², ∂³, δ, Qubit, qubits, depends, isbounded, isclassical
+export Time, Space, .., ℤ, ℚ, ℝ, ℂ, 𝑖, ∜, ∞, ∂, ∂², ∂³, δ, Qubit, qubits, depends, isbounded, isclassical
 
 # Concrete types for abstract algebraic rings:
 const ℤ = Int
@@ -42,38 +42,43 @@ Base.isless(::Val{Inf}, ::Val{Inf}) = false
 Base.isless(::Val{-Inf}, x) = isless(-Inf, x)
 Base.isless(x, ::Val{-Inf}) = isless(x, -Inf)
 Base.isless(::Val{-Inf}, ::Val{-Inf}) = false
+Base.isless(::Val{ Inf}, ::Val{-Inf}) = false
+Base.isless(::Val{ Inf}, ::Val{-Inf}) = false
 (T::Type{<: Field})(::Val{ Inf}) = T( Inf)
 (T::Type{<: Field})(::Val{-Inf}) = T(-Inf)
 Base.convert(T::Type{<: Field}, val::Union{Val{Inf}, Val{-Inf}}) = T(val)
 Base.promote_rule(T::Type{<: Field},   ::Type{<: Union{Val{Inf}, Val{-Inf}}}) = T
 Base.promote_rule(T::Type{<: Integer}, ::Type{<: Union{Val{Inf}, Val{-Inf}}}) = AbstractFloat
 
-const Compactification{T <: Number} = Union{T, Val{-Inf}, Val{Inf}}
+Base.show(io::IO, ::Val{Inf}) = print(io, "∞")
+Base.show(io::IO, ::Val{-Inf}) = print(io, "-∞")
+
+const Compactification{T <: Number} = Union{T, Val{-Inf}, Val{Inf}} # Two-point compactification.
 Base.typemin(::Type{>: Val{-Inf}}) = -∞
 Base.typemax(::Type{>: Val{ Inf}}) =  ∞
 
 (^)(op::Operator, n::Int) = prod(Iterators.repeated(op, n))
 AbstractTrees.children(op::Operator) = getops(op)
 
-abstract type Coordinate{T <: Real} <: Operator{T} end
+abstract type Dimension{T <: Real} <: Operator{T} end
 # v4: symbolic time-independent solving
-depends(op::Operator, x::Coordinate) = x ∈ AbstractTrees.Leaves(op)
+depends(op::Operator, x::Dimension) = x ∈ AbstractTrees.Leaves(op)
 
-getops(::Coordinate) = ()
+getops(::Dimension) = ()
 
-struct Time <: Coordinate{ℝ} end
+struct Time <: Dimension{ℝ} end
 isclassical(::Time) = true # N + 1 dimensional formulation.
 
-mutable struct Space{T} <: Coordinate{T}
+mutable struct Space{T} <: Dimension{T}
     const lower::Compactification{T}
     const upper::Compactification{T}
     const periodic::Bool
-    const classical::Bool # ℂ^|T| Hilbert space if false.
+    const classical::Bool # ℂ^T Hilbert space if false.
 
     # v2: resample/interpolate when grid too large or not enough samples
     const a::Union{T, Nothing} # (Maximum) lattice spacing.
     const ε::real(ℂ) # Minimum modulus.
-    const border::T
+    const canary::T # Storage types should store enough cells to have at least this much canary border.
 
     function Space{T}(lower,
                       upper;
@@ -84,11 +89,24 @@ mutable struct Space{T} <: Coordinate{T}
                       last=nothing,
                       a=nothing,
                       ε=1e-5,
-                      samples=1:typemax(Int) #= Minimum and maximum number of samples. =#) where T
-        (isinf(lower) || isinf(upper)) && periodic && throw(ArgumentError("Unbounded space cannot be periodic"))
+                      canary=nothing) where T
+        bounded = isfinite(lower) && isfinite(upper)
+        !bounded && periodic && throw(ArgumentError("Unbounded space cannot be periodic"))
         lower == upper && throw(ArgumentError("Null space"))
 
         lower, upper = min(lower, upper), max(lower, upper)
+
+        if isnothing(canary)
+            if bounded
+                if T <: Integer
+                    canary = one(T)
+                else
+                    canary = eps(T)
+                end
+            else
+                canary = zero(T)
+            end
+        end
 
         new(
             lower,
@@ -98,15 +116,31 @@ mutable struct Space{T} <: Coordinate{T}
 
             a,
             ε,
-            samples,
+            canary
         )
     end
 end
+
+function Base.show(io::IO, space::Space)
+    print(io, "Space")
+    symbol = eltype(space)
+    for ring in [:ℤ, :ℚ, :ℝ, :ℂ]
+        if symbol == getfield(QuTiE, ring)
+            symbol = ring
+            break
+        end
+    end
+    print(io, "{$symbol}")
+    print(io, "($(space.lower)..$(space.upper), periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
+end
+
 Space(upper) = Space(zero(upper), upper)
 Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords...)
 Space(lower, upper, range::AbstractRange; keywords...) = Space(lower, upper; first=first(range), step=step(range), last=last(range), keywords...)
 Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); step=step(range), keywords...)
 Space{Bool}() = Space{Bool}(0, 1)
+
+const .. = Space
 
 ==(a::Space, b::Space) = a === b
 Base.hash(space::Space) = objectid(space)
@@ -124,18 +158,27 @@ const Qubit = Space{Bool}
 qubits(val::Val) = ntuple(_ -> Qubit(), val)
 qubits(n::Integer) = qubits(Val(n))
 
-struct Derivative{N} end
+struct Derivative{N, T <: AbstractFloat} <: Operator{T}
+    wrt::Space{T}
+end
 (::Type{Derivative})(args...) = Derivative{1}(args...)
 (^)(::Type{Derivative{N}}, n::Int) where N = Derivative{N*n}
+getops(d::Derivative) = (d.wrt,)
+    
 const ∂  = Derivative{1}
 const ∂² = ∂^2
 const ∂³ = ∂^3
-(::Type{Derivative{1}})(wrt::Space{T}) where {T <: AbstractFloat} = FunctionOperator(isinplace=true, T) do (dψ, ψ, p, t)
-    dψ .= (diff([wrt.periodic ? ψ[end] : zero(T); ψ]) + diff([a; wrt.periodic ? ψ[begin] : zero(T)]))/2
-end
-(::Type{Derivative{N}})(wrt::Space) where N = ∂(wrt)^N
+# (::Type{Derivative{1}})(wrt::Space{T}) where {T <: AbstractFloat} = FunctionOperator(isinplace=true, T) do (dψ, ψ, p, t)
+#     dψ .= (diff([wrt.periodic ? ψ[end] : zero(T); ψ]) + diff([a; wrt.periodic ? ψ[begin] : zero(T)]))/2
+# end
 
-struct DiracDelta <: Operator{Union{typeof(∞), Nothing}}
+# v6
+struct ∂t end
+(::Type{Derivative{1}})(::Time) = ∂t()
+
+(::Type{Derivative{N}})(wrt) where N = ∂(wrt)^N
+
+struct DiracDelta
     variety::Operator # Algebraic variety.
 end
 const δ = DiracDelta
@@ -144,81 +187,81 @@ const δ = DiracDelta
 commutator(a::Operator, b::Operator) = nothing
 anticommutator(a::Operator, b::Operator) = nothing
 
-struct Point{N, T <: NTuple{N, Real}} <: Base.AbstractCartesianIndex{N}
-    ax::ProductSpace{N}
-    coords::T
-
-    @inline (::Type{Point})(ax::ProductSpace{N}, indices::NTuple{N, Real}) where N =
-        new{N, Tuple{eltype.(typeof(ax).types)...}}(ax, indices)
-end
-Base.keys(i::Point) = i.ax
-Base.values(i::Point) = i.indices
-Base.pairs(i::Point) = Iterators.map(=>, keys(i), values(i))
-
-struct SpatialRange{T} <: AbstractRange{T}
+struct Length{T} <: AbstractRange{T}
     space::Space{T}
     indices::AbstractRange{T}
 end
-SpatialRange(space::Space{T}, indices::AbstractRange{T}) where T =
-    SpatialRange(space, indices, first(space) == first(indices) && last(space) == last(indices) ? zero(T) : step(indices))
+# Length(space::Space{T}, indices::AbstractRange{T}) where T =
+#     Length(space, indices, first(space) == first(indices) && last(space) == last(indices) ? zero(T) : step(indices))
 """Default range for provided space."""
-function SpatialRange{T}(space::Space{T}) where T
+function Length{T}(space::Space{T}) where T
     
+    Length{T}(space, -5:5)
 end
 
-Base.convert(::Type{SpatialRange{T}}, space::Space{T}) where T = SpatialRange{T}(space)
-Base.convert(::Type{SpatialRange}, space::Space) = convert(SpatialRange{eltype(space)}, space)
+Base.convert(::Type{Length{T}}, space::Space{T}) where T = Length{T}(space)
+Base.convert(::Type{Length}, space::Space) = convert(Length{eltype(space)}, space)
 
-AbstractTrees.children(::SpatialRange) = ()
-AbstractTrees.childtype(::Type{<: SpatialRange}) = Tuple{}
+AbstractTrees.children(::Length) = ()
+AbstractTrees.childtype(::Type{<: Length}) = Tuple{}
 
-const Region{N} = NTuple{N, SpatialRange}
-Base.IteratorEltype(::Type{<: AbstractTrees.TreeIterator{<: Region}}) = Base.HasEltype()
-Base.eltype(::Type{<: AbstractTrees.TreeIterator{<: Region}}) = SpatialRange
-×(a::Region, b::Region) = (a..., b...)
-×(factors::Union{SpatialRange, Region}...) = Region(AbstractTrees.Leaves(factors))
+const Volume{N} = NTuple{N, Length}
+Base.IteratorEltype(::Type{<: AbstractTrees.TreeIterator{<: Volume}}) = Base.HasEltype()
+Base.eltype(::Type{<: AbstractTrees.TreeIterator{<: Volume}}) = Length
+×(a::Volume, b::Volume) = (a..., b...)
+×(factors::Union{Length, Volume}...) = Volume(AbstractTrees.Leaves(factors))
 
 # v3: function boundary detection by binary search
 # v4: symbolic function boundary detection
 # v4/5: intelligently select first dimension symbolically
-Base.axes(op::Operator) = Region(unique!(Base.Fix2(isa, Space), collect(AbstractTrees.Leaves(op))))
+Base.axes(op::Operator) = unique(dim for dim in AbstractTrees.Leaves(op) if dim isa Space) |> Volume
+
+const Coordinate{T} = Pair{Space{T}, T}
+struct Point{N} <: Base.AbstractCartesianIndex{N}
+    ax::NTuple{N, Space}
+    coords::NTuple{N, Real}
+end
+Base.keys(i::Point) = i.ax
+Base.values(i::Point) = i.coords
+Base.pairs(i::Point) = Iterators.map(=>, keys(i), values(i))
+Point(coords::Coordinate...) = Point(zip(coords...)...) # Intended for relatively short lists of coordinates.
 
 struct Points{N} <: AbstractArray{Point{N}, N}
-    ax::Region{N}
+    ax::Volume{N}
 end
-LinearIndices(indices::Points)
+# LinearIndices(indices::Points)
 
 mutable struct State{N} <: AbstractArray{ℂ, N}
-    ax::Region{N}
+    ax::Volume{N}
     const data::Vector{ℂ}
 
     const dimensions::IdDict{Space, Int}
 
-    State{N}(ax::Region{N}, data) where N = new{N}(ax, data, ax |> enumerate .|> reverse |> IdDict)
+    State{N}(ax::Volume{N}, data) where N = new{N}(ax, data, ax |> enumerate .|> reverse |> IdDict)
 end
 Base.axes(ψ::State) = ψ.ax
 
 Base.keytype(ψ::State{N}) where N = Point{N}
 Base.eachindex(ψ::State) = Points(axes(ψ))
 
-Base.to_index(ψ::State, i::Pair{Space{T}, T} where T) = nothing
+Base.to_index(ψ::State, i::Coordinate) = nothing
 Base.to_index(ψ::State, i::Pair{Space{T}, Colon} where T) = nothing
-Base.to_indices(ψ::State, i::HigherDimensionalSpaceIndex) = values(i)
-Base.to_indices(ψ::State, ax::HigherDimensionalSpace, indices::Tuple{Vararg{Pair{Space{T}, Union{T, Colon}} where T}}) = nothing
-function Base.getindex(ψ::State, i::HigherDimensionalSpaceIndex)
-    ψ.data[LinearIndices(eachindex.(Base.getfield.(axes(ψ), :indices)))[i.values...]]
-end
+# Base.to_indices(ψ::State, i::HigherDimensionalSpaceIndex) = values(i)
+# Base.to_indices(ψ::State, ax::HigherDimensionalSpace, indices::Tuple{Vararg{Pair{Space{T}, Union{T, Colon}} where T}}) = nothing
+# function Base.getindex(ψ::State, i::HigherDimensionalSpaceIndex)
+#     ψ.data[LinearIndices(eachindex.(Base.getfield.(axes(ψ), :indices)))[i.values...]]
+# end
 Base.getindex(ψ::State, indices::(Pair{Space{T}, <: Union{T, AbstractRange{T}, Colon}} where T)...) =
     ψ[HigherDimensionalSpaceIndex(axes(ψ), to_indices(ψ, indices))]
 
-Base.similar(::Type{State}, ax::Region{N}) where N = similar(State{N}, ax)
-Base.similar(::Type{State{N}}, ax::Region{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
+Base.similar(::Type{State}, ax::Volume{N}) where N = similar(State{N}, ax)
+Base.similar(::Type{State{N}}, ax::Volume{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
 
-Base.fill(value::ComplexF64, ax::Region) = fill!(similar(State, ax), value)
-Base.zeros(T::Type{ComplexF64}, ax::Region) = fill(zero(ComplexF64), ax)
-Base.ones( T::Type{ComplexF64}, ax::Region) = fill( one(ComplexF64), ax)
-Base.zeros(ax::Region) = zeros(ComplexF64, ax)
-Base.ones( ax::Region) =  ones(ComplexF64, ax)
+Base.fill(value::ComplexF64, ax::Volume) = fill!(similar(State, ax), value)
+Base.zeros(T::Type{ComplexF64}, ax::Volume) = fill(zero(ComplexF64), ax)
+Base.ones( T::Type{ComplexF64}, ax::Volume) = fill( one(ComplexF64), ax)
+Base.zeros(ax::Volume) = zeros(ComplexF64, ax)
+Base.ones( ax::Volume) =  ones(ComplexF64, ax)
 
 function trim!(ψ::State)
     r = axes(ψ)[1]
@@ -242,7 +285,7 @@ function LinearAlgebra.dot(ψ::State, φ::State)
     end
 end
 
-using MakieCore
+# using MakieCore
 
 # v3
 """Returns the unique Lagrangian with gauge group U(n) and coupling constant g in terms of the given spaces."""
@@ -272,14 +315,14 @@ end
 
 using ..QuTiE
 using DifferentialEquations
-using AlgebraOfGraphics
+# using AlgebraOfGraphics
 using LaTeXStrings
-using Makie
-try
-    using GLMakie
-catch
-    using CairoMakie
-end
+# using Makie
+# try
+#     using GLMakie
+# catch
+#     using CairoMakie
+# end
 using Revise
 using PhysicalConstants: CODATA2018, PhysicalConstant
 
@@ -348,7 +391,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
         elseif (isdefined(:θ) || isdefined(:φ)) && isdefined(:z)
             #
         end
-    elseif
+    else
     end
     ψ = Observable(ψ₀*ones(axes(H)))
     draw(data(ψ)*📊)
