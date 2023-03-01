@@ -2,7 +2,7 @@
 
 module QuTiE
 
-import Base: -, ^, ==
+import Base: +, -, *, ^, ==
 import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, AbstractSciMLLinearOperator as LinearOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, FunctionOperator
 import TermInterface, SymbolicUtils
 import AbstractTrees
@@ -62,8 +62,13 @@ const ℶ = Beth
 const ℶ₀ = ℶ(0)
 const ℶ₁ = ℶ(1)
 const ℶ₂ = ℶ(2)
-(^)(::Val{2}, ::ℶ{N}) where N = ℶ(N + 1) # Definition of ℶ by transfinite recursion.
+(^)(::Val{2}, ::ℶ{α}) where α = ℶ(α + 1) # Definition of ℶ by transfinite recursion.
 (^)(base::Int, cardinal::ℶ) = Val(base)^cardinal
+const subscripts = collect("₀₁₂₃₄₅₆₇₈₉")
+Base.show(io::IO, ::ℶ{α}) where α = print(io, "ℶ", subscripts[reverse!(digits(α)) .+ 1]...)
+# Assuming axiom of choice:
+(+)(::ℶ{α}, ::ℶ{β}) where {α, β} = ℶ(max(α, β))
+(*)(::ℶ{α}, ::ℶ{β}) where {α, β} = ℶ(max(α, β))
 
 const Compactification{T <: Number} = Union{T, typeof(-∞), typeof(∞)} # Two-point compactification.
 Base.typemin(::Type{>: Val{-Inf}}) = -∞
@@ -105,16 +110,16 @@ mutable struct Space{T} <: Dimension{T}
     const ε::real(ℂ) # Minimum modulus.
     const canary::T # Storage types should store enough cells to have at least this much canary border.
 
+    const hint::Union{AbstractRange{T}, Nothing}
+
     function Space{T}(lower,
                       upper;
                       periodic=false,
                       classical=false, # v6
-                      first=nothing,
-                      step=nothing,
-                      last=nothing,
                       a=nothing,
                       ε=1e-5,
-                      canary=nothing) where T
+                      canary=nothing,
+                      hint=nothing) where T
         bounded = isfinite(lower) && isfinite(upper)
         !bounded && periodic && throw(ArgumentError("Unbounded space cannot be periodic"))
         lower == upper && throw(ArgumentError("Null space"))
@@ -141,10 +146,18 @@ mutable struct Space{T} <: Dimension{T}
 
             a,
             ε,
-            canary
+            canary,
+
+            hint
         )
     end
 end
+
+Space(upper) = Space(zero(upper), upper)
+Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords...)
+Space(lower, upper, hint::AbstractRange; keywords...) = Space(lower, upper; hint=range, keywords...)
+Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); a=step(range), keywords...)
+Space{Bool}() = Space{Bool}(0, 1)
 
 function Base.show(io::IO, space::Space)
     spaces = get(io, :spaces, nothing)
@@ -172,12 +185,6 @@ function Base.show(io::IO, space::Space)
     print(io, name)
 end
 
-Space(upper) = Space(zero(upper), upper)
-Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords...)
-Space(lower, upper, range::AbstractRange; keywords...) = Space(lower, upper; first=first(range), step=step(range), last=last(range), keywords...)
-Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); step=step(range), keywords...)
-Space{Bool}() = Space{Bool}(0, 1)
-
 const .. = Space
 
 ==(a::Space, b::Space) = a === b
@@ -190,6 +197,7 @@ isbounded(space::Space) = isfinite(first(space)) && isfinite(last(space))
 Base.isfinite(space::Space) = isbounded(space) && eltype(space) <: Integer
 Base.isinf(space::Space) = !isfinite(space)
 isclassical(space::Space) = space.classical
+"""Size as a map from an infinite set of ℂ^ℝ functions to ℂ^ℝ functions."""
 Base.size(::Space) = (ℶ₂, ℶ₂) # Map from ψ ↦ ψ, a set of all dimensions ℂ^ℝ
 
 const Qubit = Space{Bool}
@@ -235,8 +243,10 @@ end
 """Default range for provided space."""
 function Length{T}(space::Space{T}) where T
     # TODO
-    Length{T}(space, -5.0:5.0)
+    Length{T}(space, -10.0:10.0)
 end
+
+Length{T}(space::Space{T}) where {T <: Integer} = Length{T}(space, -10:10)
 
 Base.convert(::Type{Length{T}}, space::Space{T}) where T = Length{T}(space)
 Base.convert(::Type{Length}, space::Space) = convert(Length{eltype(space)}, space)
