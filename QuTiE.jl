@@ -2,15 +2,21 @@
 
 module QuTiE
 
-import Base: +, -, *, ^, ==
-import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, AbstractSciMLLinearOperator as LinearOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, FunctionOperator
+import Base: +, -, *, /, ^, ==
+import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, AbstractSciMLLinearOperator as LinearOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, FunctionOperator, AdjointOperator
 import TermInterface, SymbolicUtils
 import AbstractTrees
 using LinearAlgebra
+using StaticArrays
 # using ModelingToolkit, SymbolicUtils # v4/5
 # using MarchingCubes, ConstructiveGeometry, Compose # v6/7
 
-export Time, Space, .., 𝑖, ∜, ∞, ∂, ∂², ∂³, δ, ×, Qubit, qubits, depends, isbounded, isclassical
+export Time, Space, .., 𝑖, ∜, ∞, δ, ×, Qubit, qubits, depends, isbounded, isclassical, commutes, commutator, anticommutator
+
+const superscripts = collect("⁰¹²³⁴⁵⁶⁷⁸⁹")
+const   subscripts = collect("₀₁₂₃₄₅₆₇₈₉")
+sup(n::Integer) = join(superscripts[reverse!(digits(n)) .+ 1])
+sub(n::Integer) = join(  subscripts[reverse!(digits(n)) .+ 1])
 
 # Concrete types for abstract algebraic rings:
 for (symbol, ring) in pairs((ℤ=Int, ℚ=Rational, ℝ=Float64, ℂ=ComplexF64))
@@ -24,7 +30,7 @@ const 𝑖 = im
 
 ∜(x::ℝ) = x^(1/4)
 
-const Field = Union{ℚ, AbstractFloat} # In the abstract algebraic sense.
+const RealField = Union{ℚ, AbstractFloat} # A formally real field in the abstract algebraic sense.
 
 const ∞ = Val(Inf)
 (-)(::Val{ Inf}) = Val(-Inf)
@@ -35,10 +41,10 @@ Base.isfinite(::Val{ Inf}) = false
 Base.isfinite(::Val{-Inf}) = false
 Base.isnan(::Val{ Inf}) = false
 Base.isnan(::Val{-Inf}) = false
-==(::Val{Inf}, x::Field) = Inf == x
-==(x::Field, ::Val{Inf}) = x == Inf
-==(::Val{-Inf}, x::Field) = -Inf == x
-==(x::Field, ::Val{-Inf}) = x == -Inf
+==(::Val{Inf}, x::RealField) = Inf == x
+==(x::RealField, ::Val{Inf}) = x == Inf
+==(::Val{-Inf}, x::RealField) = -Inf == x
+==(x::RealField, ::Val{-Inf}) = x == -Inf
 Base.isless(::Val{Inf}, x) = isless(Inf, x)
 Base.isless(x, ::Val{Inf}) = isless(x, Inf)
 Base.isless(::Val{Inf}, ::Val{Inf}) = false
@@ -47,10 +53,10 @@ Base.isless(x, ::Val{-Inf}) = isless(x, -Inf)
 Base.isless(::Val{-Inf}, ::Val{-Inf}) = false
 Base.isless(::Val{ Inf}, ::Val{-Inf}) = false
 Base.isless(::Val{-Inf}, ::Val{ Inf}) = true
-(T::Type{<: Field})(::Val{ Inf}) = T( Inf)
-(T::Type{<: Field})(::Val{-Inf}) = T(-Inf)
-Base.convert(T::Type{<: Field}, val::Union{Val{Inf}, Val{-Inf}}) = T(val)
-Base.promote_rule(T::Type{<: Field},   ::Type{<: Union{Val{Inf}, Val{-Inf}}}) = T
+(T::Type{<: RealField})(::Val{ Inf}) = T( Inf)
+(T::Type{<: RealField})(::Val{-Inf}) = T(-Inf)
+Base.convert(T::Type{<: RealField}, val::Union{Val{Inf}, Val{-Inf}}) = T(val)
+Base.promote_rule(T::Type{<: RealField},   ::Type{<: Union{Val{Inf}, Val{-Inf}}}) = T
 Base.promote_rule(T::Type{<: Integer}, ::Type{<: Union{Val{Inf}, Val{-Inf}}}) = AbstractFloat
 
 Base.show(io::IO, ::Val{ Inf}) = print(io,  "∞")
@@ -58,42 +64,44 @@ Base.show(io::IO, ::Val{-Inf}) = print(io, "-∞")
 
 struct Beth{α} end
 const ℶ = Beth
-(::Type{ℶ})(α::Integer) = Beth{α}()
-const ℶ₀ = ℶ(0)
-const ℶ₁ = ℶ(1)
-const ℶ₂ = ℶ(2)
+(::Type{ℶ})(α::Integer) = ℶ{α}()
 (^)(::Val{2}, ::ℶ{α}) where α = ℶ(α + 1) # Definition of ℶ by transfinite recursion.
-(^)(base::Int, cardinal::ℶ) = Val(base)^cardinal
-const subscripts = collect("₀₁₂₃₄₅₆₇₈₉")
-Base.show(io::IO, ::ℶ{α}) where α = print(io, "ℶ", subscripts[reverse!(digits(α)) .+ 1]...)
+(^)(base::ℤ, cardinal::ℶ) = Val(base)^cardinal
+for i in 0:10
+    @eval const $(Symbol("ℶ"*sub(i))) = ℶ($i)
+end
+Base.show(io::IO, ::ℶ{α}) where α = print(io, "ℶ", sub(α))
 # Assuming axiom of choice:
 (+)(::ℶ{α}, ::ℶ{β}) where {α, β} = ℶ(max(α, β))
-(*)(::ℶ{α}, ::ℶ{β}) where {α, β} = ℶ(max(α, β))
+(*)(a::ℶ, b::ℶ) = a + b
 
 const Compactification{T <: Number} = Union{T, typeof(-∞), typeof(∞)} # Two-point compactification.
 Base.typemin(::Type{>: Val{-Inf}}) = -∞
 Base.typemax(::Type{>: Val{ Inf}}) =  ∞
 
-(^)(op::Operator, n::Int) = prod(Iterators.repeated(op, n))
+(^)(op::Operator, n::ℤ) = ComposedOperator(Iterators.repeated(op, n)...)
 SymbolicUtils.istree(::Operator) = true
 TermInterface.exprhead(::Operator) = :call
 SymbolicUtils.operation(::Union{ComposedOperator, ComposedScalarOperator, ScaledOperator}) = (*)
 SymbolicUtils.operation(::ScalarOperator) = identity
 SymbolicUtils.operation(::AddedOperator) = (+)
+SymbolicUtils.operation(::AdjointOperator) = adjoint
+TermInterface.exprhead(::AdjointOperator) = Symbol("'")
 SymbolicUtils.symtype(op::Operator) = eltype(op)
 AbstractTrees.children(op::Operator) = getops(op)
-SymbolicUtils.arguments(op::Operator) = AbstractTrees.children(op) |> collect
-SymbolicUtils.isnegative(op::ScalarOperator) = SymbolicUtils.isnegative(convert(Number, op))
-SymbolicUtils.remove_minus(op::ScalarOperator) = -convert(Number, op)
-SymbolicUtils.remove_minus(op::ScaledOperator) =
-    [SymbolicUtils.remove_minus(getops(op)[1]), getops(op)[2:end]...]
+SymbolicUtils.arguments(op::Operator) = getops(op) |> collect
+SymbolicUtils.arguments(op::ScaledOperator) = [convert(Number, getops(op)[1]), getops(op)[2:end]...]
 
 abstract type Dimension{T <: Real} <: Operator{T} end
-# v4: symbolic time-independent solving
-depends(op::Operator, x::Dimension) = x ∈ AbstractTrees.Leaves(op)
-
 SymbolicUtils.istree(::Dimension) = false
 getops(::Dimension) = ()
+"""Differs from `axes` in that it does not give concrete indices to any dimension."""
+filter_type(T::Type,               op::Operator) = Iterators.filter(el -> el isa T, AbstractTrees.PostOrderDFS(op))
+filter_type(T::Type{<: Dimension}, op::Operator) = Iterators.filter(el -> el isa T, AbstractTrees.Leaves(op))
+# v4: symbolic time-independent solving
+depends(op::Operator, x::Dimension) = x ∈ filter_type(Dimension, op)
+"""Size as a map from an infinite set of ℂ^ℝ functions to ℂ^ℝ functions."""
+Base.size(::Dimension) = (ℶ₂, ℶ₂) # Map from ψ ↦ ψ, a set of all dimensions ℂ^ℝ
 
 struct Time <: Dimension{ℝ} end
 isclassical(::Time) = true # N + 1 dimensional formulation.
@@ -110,16 +118,13 @@ mutable struct Space{T} <: Dimension{T}
     const ε::real(ℂ) # Minimum modulus.
     const canary::T # Storage types should store enough cells to have at least this much canary border.
 
-    const hint::Union{AbstractRange{T}, Nothing}
-
     function Space{T}(lower,
                       upper;
                       periodic=false,
                       classical=false, # v6
                       a=nothing,
                       ε=1e-5,
-                      canary=nothing,
-                      hint=nothing) where T
+                      canary=nothing) where T
         bounded = isfinite(lower) && isfinite(upper)
         !bounded && periodic && throw(ArgumentError("Unbounded space cannot be periodic"))
         lower == upper && throw(ArgumentError("Null space"))
@@ -146,16 +151,13 @@ mutable struct Space{T} <: Dimension{T}
 
             a,
             ε,
-            canary,
-
-            hint
+            canary
         )
     end
 end
 
 Space(upper) = Space(zero(upper), upper)
 Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords...)
-Space(lower, upper, hint::AbstractRange; keywords...) = Space(lower, upper; hint=range, keywords...)
 Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); a=step(range), keywords...)
 Space{Bool}() = Space{Bool}(0, 1)
 
@@ -191,47 +193,53 @@ const .. = Space
 Base.hash(space::Space) = objectid(space)
 Base.first(space::Space) = space.lower
 Base.last( space::Space) = space.upper
-Base.in(x::Field, space::Space{<: Integer}) = false
+Base.in(x::RealField, space::Space{<: Integer}) = false
 Base.in(x, space::Space) = first(space) ≤ x ≤ last(space)
 isbounded(space::Space) = isfinite(first(space)) && isfinite(last(space))
 Base.isfinite(space::Space) = isbounded(space) && eltype(space) <: Integer
 Base.isinf(space::Space) = !isfinite(space)
 isclassical(space::Space) = space.classical
-"""Size as a map from an infinite set of ℂ^ℝ functions to ℂ^ℝ functions."""
-Base.size(::Space) = (ℶ₂, ℶ₂) # Map from ψ ↦ ψ, a set of all dimensions ℂ^ℝ
+Base.length(space::Space{<: Integer}) = isfinite(space) ? last(space) - first(space) : ℶ₀
+Base.length(space::Space) = ℶ₁
 
 const Qubit = Space{Bool}
 qubits(val::Val) = ntuple(_ -> Qubit(), val)
 qubits(n::Integer) = qubits(Val(n))
 
-struct Derivative{N, T <: AbstractFloat} <: Operator{T}
-    wrt::Space{T}
+struct Derivative{N, T <: AbstractFloat} <: LinearOperator{T}
+    wrt::Dimension{T} # v6: ∂(::Time) for classical objects
 end
 (::Type{Derivative})(args...) = Derivative{1}(args...)
-(^)(::Type{Derivative{N}}, n::Int) where N = Derivative{N*n}
+(^)(::Type{Derivative{N}}, n::ℤ) where N = Derivative{N*n}
 getops(d::Derivative) = (d.wrt,)
-    
-const ∂  = Derivative{1}
-const ∂² = ∂^2
-const ∂³ = ∂^3
-# (::Type{Derivative{1}})(wrt::Space{T}) where {T <: AbstractFloat} = FunctionOperator(isinplace=true, T) do (dψ, ψ, p, t)
-#     dψ .= (diff([wrt.periodic ? ψ[end] : zero(T); ψ]) + diff([a; wrt.periodic ? ψ[begin] : zero(T)]))/2
-# end
 
-# v6
-struct ∂t end
-(::Type{Derivative{1}})(::Time) = ∂t()
+const ∂ = Derivative{1}
+export ∂
+for i in 2:10
+    partial = Symbol("∂"*sup(i))
+    @eval const $partial = ∂^$i
+    @eval export $partial
+end
 
 (::Type{Derivative{N}})(wrt) where N = ∂(wrt)^N
+∂(wrt::Dimension{T}) where T = ∂{T}(wrt)
 
+SymbolicUtils.operation(::∂) = ∂
+Base.size(d::Derivative) = size(d.wrt)
+
+function commutator(a::Operator, b::Operator)
+    isdisjoint(       Iterators.map(∂, filter_type(Dimension, a)), filter_type(∂, b)) &&
+        isdisjoint(Iterators.map(∂, filter_type(Dimension, b)), filter_type(∂, a)) &&
+        return false
+    a*b - b*a
+end
+anticommutator(a::Operator, b::Operator) = a*b + b*a
+
+# v4/5?
 struct DiracDelta
     variety::Operator # Algebraic variety.
 end
 const δ = DiracDelta
-
-# v4/5?
-commutator(a::Operator, b::Operator) = nothing
-anticommutator(a::Operator, b::Operator) = nothing
 
 struct Length{T} <: AbstractRange{T}
     space::Space{T}
@@ -245,11 +253,11 @@ function Length{T}(space::Space{T}) where T
     # TODO
     Length{T}(space, -10.0:10.0)
 end
-
 Length{T}(space::Space{T}) where {T <: Integer} = Length{T}(space, -10:10)
+Base.length(l::Length) = length(l.indices)
 
 Base.convert(::Type{Length{T}}, space::Space{T}) where T = Length{T}(space)
-Base.convert(::Type{Length}, space::Space) = convert(Length{eltype(space)}, space)
+Base.convert(::Type{Length},    space::Space) = convert(Length{eltype(space)}, space)
 
 function Base.show(io::IO, l::Length)
     name = get(get(io, :spaces, IdDict{Space, Char}()), l.space, nothing)
@@ -269,12 +277,15 @@ const Volume{N} = NTuple{N, Length}
 const NonEmptyVolume = Tuple{Length, Vararg{Length}} # May still be the null set if all lengths zero. All unqualified references to `Volume` should be NonEmptyVolume to avoid matching `Tuple{}`
 Base.IteratorEltype(::Type{<: AbstractTrees.TreeIterator{<: NonEmptyVolume}}) = Base.HasEltype()
 Base.eltype(::Type{<: AbstractTrees.TreeIterator{<: NonEmptyVolume}}) = Length
-×(a::NonEmptyVolume, b::NonEmptyVolume) = (a..., b...)
 ×(factors::Union{Length, NonEmptyVolume}...) = Volume(AbstractTrees.Leaves(factors))
+
+for Indices in (LinearIndices, CartesianIndices)
+    @eval $Indices(vol::NonEmptyVolume) = $Indices(map(Base.OneTo ∘ length, vol))
+end
 
 Base.show(io::IO, vol::NonEmptyVolume) = join(io, vol, " × ")
 
-Base.axes(op::Operator) = unique(space for space in AbstractTrees.Leaves(op) if space isa Space) |> Volume
+Base.axes(op::Operator) = filter_type(Space, op) |> unique |> Volume
 function Base.show(io::IO, op::Operator)
     names = get(io, :names, nothing)
     if isnothing(names)
@@ -288,16 +299,13 @@ function Base.show(io::IO, op::Operator)
     end
     if !get(io, :compact, false)
         printed = false
-        for space in AbstractTrees.Leaves(op)
-            if !isa(space, Space)
-                continue
-            end
-            get!(spaces, space) do
-                printed = true
+        for space in filter_type(Space, op)
+            get!(Ref(spaces), space) do
                 newname = first(names)
                 print(io, "$newname = ")
                 show(IOContext(io, :spaces => nothing), space)
-                println()
+                println(";")
+                printed = true
                 return newname
             end
         end
@@ -316,9 +324,9 @@ Base.keys(i::Point) = i.ax
 Base.values(i::Point) = i.coords
 Base.pairs(i::Point) = Iterators.map(=>, keys(i), values(i))
 Point(coords::Coordinate...) = Point(zip(coords...)...) # Intended for relatively short lists of coordinates.
-Base.getindex(space::Space{T}, index::T) where T          = Point(space => index)
-Base.getindex(space::Space{T}, index::T) where T <: Int64 = Point(space => index)
-Base.getindex(::Space, i::Int64) = throw(MethodError(getindex, i))
+Base.getindex(space::Space{T}, index::T) where T      = Point(space => index)
+Base.getindex(space::Space{T}, index::T) where T <: ℤ = Point(space => index)
+Base.getindex(::Space, i::ℤ) = throw(MethodError(getindex, i))
 
 struct Points{N} <: AbstractArray{Point{N}, N}
     ax::Volume{N}
@@ -326,36 +334,113 @@ end
 # LinearIndices(indices::Points)
 
 mutable struct State{N} <: AbstractArray{ℂ, N}
-    ax::Volume{N}
+    ax::SVector{N, Length}
     const data::Vector{ℂ}
 
-    const dimensions::IdDict{Space, Int}
-
-    State{N}(ax::Volume{N}, data) where N = new{N}(ax, data, ax |> enumerate .|> reverse |> IdDict)
+    function State{N}(ax::Volume{N}) where N
+        ax = sort(SVector(ax); by=objectid)
+        new{N}(ax, Vector{ℂ}(undef, ax |> Tuple |> CartesianIndices |> length))
+    end
+    State{N}(ψ::State{N}) where N = new{N}(ψ.ax, copy(ψ.data))
 end
-Base.axes(ψ::State) = ψ.ax
+Base.copy(ψ::State) = State(ψ)
+Base.axes(ψ::State) = Tuple(ψ.ax)
+
+(*)(d::∂, ψ::State)                           = central_diff(     ψ; dims=d.wrt)
+LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = central_diff!(dψ, ψ; dims=d.wrt)
+# dψ .= (diff(  cat((   wrt.periodic ? identity : zeros∘axes)(ψ[d.wrt => end  ]), ψ; dims=d.wrt), d.wrt)
+#        + diff(cat(ψ, (wrt.periodic ? identity : zeros∘axes)(ψ[d.wrt => begin])   ; dims=d.wrt), d.wrt))/2
+
+abstract type SymbolicIndex{T} <: SymbolicUtils.Symbolic{T} end
+abstract type Index <: SymbolicIndex{Real} end
+struct FirstIndex <: Index end
+struct  LastIndex <: Index end
+Base.firstindex(::State) = FirstIndex()
+Base.lastindex( ::State) =  LastIndex()
+Base.firstindex(::State, ::Integer) = FirstIndex()
+Base.lastindex( ::State, ::Integer) =  LastIndex()
+Base.show(::IO, ::FirstIndex) = throw(ArgumentError("You must specify the dimension of which to retrieve the first index"))
+Base.show(::IO, ::LastIndex ) = throw(ArgumentError("You must specify the dimension of which to retrieve the last index"))
+SymbolicUtils.istree(::Index) = false
+struct IndexExpression <: SymbolicIndex{Real}
+    f::Function
+    args::Vector{Union{IndexExpression, Index, Number}}
+end
+const IndexScalar = Union{IndexExpression, Index, Number}
+SymbolicUtils.istree(::IndexExpression) = true
+TermInterface.exprhead(::IndexExpression) = :call
+SymbolicUtils.operation(exp::IndexExpression) = exp.f
+SymbolicUtils.arguments(exp::IndexExpression) = exp.args
+(::Type{F <: Union{
+    typeof(+),
+    typeof(-),
+    typeof(*),
+    typeof(/),
+    typeof(^)
+}})(a, b) where F = IndexExpression(F, [a, b])
+struct IndexRange{F <: AbstractRange} <: SymbolicIndex{F}
+    args::Vector{IndexScalar}
+end
+(::Type{F <: AbstractRange})(args::IndexScalar...) where F = args |> collect |> IndexRange{F}
+SymbolicUtils.istree(::IndexRange) = true
+TermInterface.exprhead(::IndexRange) = :call
+SymbolicUtils.operation(::IndexRange{F}) where F = F
+SymbolicUtils.arguments(range::IndexRange) = range.args
+
+function central_diff!(dψ::State{N}, ψ::State{N}; dims::Space{T}) where {N, T}
+    axes(dψ) == axes(ψ) || throw(DimensionMismatch())
+    dim = only(searchsorted(ψ.ax, dims; by=objectid))
+    # Second-order finite difference method:
+    i = LinearIndices(ψ)
+    @inline indices(replacement) =
+        i[to_indices(i, ntuple(ifelse(i -> i == dim, replacement, :), Val(N)))]
+    start = firstindex(i, dim) + 1
+    stop  =  lastindex(i, dim) - 1
+    dψ.data[      indices(    start:stop    )] .= (
+        ψ.data[  indices(start + 1:stop + 1)]
+        - ψ.data[indices(start - 1:stop - 1)]
+    )/2
+    dψ.data[indices(start - 1)] .= (
+        (dims.periodic ? ψ.data[indices(stop + 1)] : zero(T))
+        .- ψ.data[indices(start)]
+    )/2
+    dψ.data[indices(stop + 1)] .= (
+        (dims.periodic ? ψ.data[indices(start - 1)] : zero(T))
+        .- ψ.data[indices(stop)]
+    )/2
+
+    dψ[:] = (ψ[:, dims => begin + 1:end + 1] - ψ[:, dims => begin - 1:end - 1])/2
+    dψ
+end
+central_diff!(dψ::State, ψ::State; dims::Length) = central_diff!(dψ, ψ; dims=dims.space)
+central_diff(ψ::State; dims::Length) = central_diff!(similar(ψ), ψ; dims=dims.space)
 
 Base.keytype(ψ::State{N}) where N = Point{N}
 Base.eachindex(ψ::State) = Points(axes(ψ))
 
 Base.to_index(ψ::State, i::Coordinate) = nothing
-Base.to_index(ψ::State, i::Pair{Space{T}, Colon} where T) = nothing
-# Base.to_indices(ψ::State, i::HigherDimensionalSpaceIndex) = values(i)
-# Base.to_indices(ψ::State, ax::HigherDimensionalSpace, indices::Tuple{Vararg{Pair{Space{T}, Union{T, Colon}} where T}}) = nothing
+Base.to_index(ψ::State, i::(Pair{Space{T}, <: AbstractRange{T}} where T)) = nothing
+Base.to_index(ψ::State, i::Pair{<: Space, Colon}) = ψ.ax[only(searchsorted(ψ.ax, i.first; by=objectid))].indices
+Base.to_index(ψ::State, @nospecialize i::Pair{<: Space, <: SymbolicIndex}) =
+    Base.to_index(ψ, i.first => SymbolicUtils.substitute(i.second, Dict(
+        FirstIndex() => firstindex(ψ, i.first),
+        LastIndex()  =>  lastindex(ψ, i.first)
+    )))
 # function Base.getindex(ψ::State, i::HigherDimensionalSpaceIndex)
 #     ψ.data[LinearIndices(eachindex.(Base.getfield.(axes(ψ), :indices)))[i.values...]]
 # end
-Base.getindex(ψ::State, indices::(Pair{Space{T}, <: Union{T, AbstractRange{T}, Colon}} where T)...) =
+Base.getindex(ψ::State, indices::Union{(Pair{Space{T}, <: Union{T, AbstractRange{T}, Colon}} where T), Colon}...) =
     ψ[HigherDimensionalSpaceIndex(axes(ψ), to_indices(ψ, indices))]
 
 Base.similar(::Type{State}, ax::Volume{N}) where N = similar(State{N}, ax)
-Base.similar(::Type{State{N}}, ax::Volume{N}) where N = State(ax, Vector{ℂ}(undef, length(CartesianIndices(ax))))
+Base.similar(::Type{State{N}}, ax::Volume{N}) where N = State(ax)
 
-Base.fill(value::ComplexF64, ax::NonEmptyVolume) = fill!(similar(State, ax), value)
-Base.zeros(T::Type{ComplexF64}, ax::NonEmptyVolume) = fill(zero(ComplexF64), ax)
-Base.ones( T::Type{ComplexF64}, ax::NonEmptyVolume) = fill( one(ComplexF64), ax)
-Base.zeros(ax::NonEmptyVolume) = zeros(ComplexF64, ax)
-Base.ones( ax::NonEmptyVolume) =  ones(ComplexF64, ax)
+Base.fill!(ψ::State, value::ℂ) = fill!(ψ.data, value)
+Base.fill(value::ℂ, ax::NonEmptyVolume) = fill!(similar(State, ax), value)
+Base.zeros(T::Type{ℂ}, ax::NonEmptyVolume) = fill(zero(ℂ), ax)
+Base.ones( T::Type{ℂ}, ax::NonEmptyVolume) = fill( one(ℂ), ax)
+Base.zeros(ax::NonEmptyVolume) = zeros(ℂ, ax)
+Base.ones( ax::NonEmptyVolume) =  ones(ℂ, ax)
 
 function trim!(ψ::State)
     r = axes(ψ)[1]
