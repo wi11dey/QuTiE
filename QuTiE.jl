@@ -2,12 +2,13 @@
 
 module QuTiE
 
-import Base: +, -, *, /, ^, ==
+import Base: +, -, *, /, ^, ==, @propagate_inbounds, to_index
 import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, AbstractSciMLLinearOperator as LinearOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, FunctionOperator, AdjointOperator
 import TermInterface, SymbolicUtils
 import AbstractTrees
 using LinearAlgebra
 using StaticArrays
+using Interpolations
 # using ModelingToolkit, SymbolicUtils # v4/5
 # using MarchingCubes, ConstructiveGeometry, Compose # v6/7
 
@@ -228,8 +229,8 @@ SymbolicUtils.operation(::∂) = ∂
 Base.size(d::Derivative) = size(d.wrt)
 
 function commutator(a::Operator, b::Operator)
-    isdisjoint(       Iterators.map(∂, filter_type(Dimension, a)), filter_type(∂, b)) &&
-        isdisjoint(Iterators.map(∂, filter_type(Dimension, b)), filter_type(∂, a)) &&
+    isdisjoint(    ∂.(filter_type(Dimension, a)), filter_type(∂, b)) &&
+        isdisjoint(∂.(filter_type(Dimension, b)), filter_type(∂, a)) &&
         return false
     a*b - b*a
 end
@@ -258,6 +259,8 @@ Base.length(l::Length) = length(l.indices)
 
 Base.convert(::Type{Length{T}}, space::Space{T}) where T = Length{T}(space)
 Base.convert(::Type{Length},    space::Space) = convert(Length{eltype(space)}, space)
+Base.convert(::Type{Pair{Space{T}}}, l::Length{T}) where T = l.space => l.indices
+Base.convert(::Type{Pair},           l::Length{T}) where T = convert(Pair{Space{T}}, l)
 
 function Base.show(io::IO, l::Length)
     name = get(get(io, :spaces, IdDict{Space, Char}()), l.space, nothing)
@@ -269,7 +272,7 @@ function Base.show(io::IO, l::Length)
 end
 
 AbstractTrees.children(::Length) = ()
-AbstractTrees.childtype(::Type{<: Length}) = Tuple{}
+AbstractTrees.childrentype(::Type{<: Length}) = Tuple{}
 
 Base.getindex(space::Space, indices::AbstractRange) = Length(space, indices)
 
@@ -278,10 +281,6 @@ const NonEmptyVolume = Tuple{Length, Vararg{Length}} # May still be the null set
 Base.IteratorEltype(::Type{<: AbstractTrees.TreeIterator{<: NonEmptyVolume}}) = Base.HasEltype()
 Base.eltype(::Type{<: AbstractTrees.TreeIterator{<: NonEmptyVolume}}) = Length
 ×(factors::Union{Length, NonEmptyVolume}...) = Volume(AbstractTrees.Leaves(factors))
-
-for Indices in (LinearIndices, CartesianIndices)
-    @eval $Indices(vol::NonEmptyVolume) = $Indices(map(Base.OneTo ∘ length, vol))
-end
 
 Base.show(io::IO, vol::NonEmptyVolume) = join(io, vol, " × ")
 
@@ -320,34 +319,57 @@ struct Point{N} <: Base.AbstractCartesianIndex{N}
     ax::NTuple{N, Space}
     coords::NTuple{N, Real}
 end
-Base.keys(i::Point) = i.ax
-Base.values(i::Point) = i.coords
-Base.pairs(i::Point) = Iterators.map(=>, keys(i), values(i))
+Base.keys(ι::Point) = ι.ax
+Base.values(ι::Point) = ι.coords
+Base.pairs(ι::Point) = keys(ι) .=> values(ι)
 Point(coords::Coordinate...) = Point(zip(coords...)...) # Intended for relatively short lists of coordinates.
 Base.getindex(space::Space{T}, index::T) where T      = Point(space => index)
 Base.getindex(space::Space{T}, index::T) where T <: ℤ = Point(space => index)
 Base.getindex(::Space, i::ℤ) = throw(MethodError(getindex, i))
+AbstractTrees.children(ι::Point) = Length.(keys(ι), (:).(values(ι), values(ι)))
+AbstractTrees.childtype(::Point) = Length
 
 struct Points{N} <: AbstractArray{Point{N}, N}
     ax::Volume{N}
 end
-# LinearIndices(indices::Points)
+AbstractTrees.children(points::Point) = points.ax
+AbstractTrees.childtype(::Point) = AbstractTrees.childtype(Volume)
 
 mutable struct State{N} <: AbstractArray{ℂ, N}
     ax::SVector{N, Length}
     const data::Vector{ℂ}
 
     function State{N}(ax::Volume{N}) where N
-        ax = sort(SVector(ax); by=objectid)
-        new{N}(ax, Vector{ℂ}(undef, ax |> Tuple |> CartesianIndices |> length))
+        created = new{N}(
+            sort(SVector(ax); by=l -> objectid(l.space)),
+            Vector{ℂ}(undef, ax .|> length |> prod + 1)
+        )
+        created.data[end] = zero(ℂ)
+        created
     end
     State{N}(ψ::State{N}) where N = new{N}(ψ.ax, copy(ψ.data))
+    function State{N}(ax::Volume{N}, data::Vector{ℂ}) where N
+        @boundscheck length(data) == ax .|> length |> prod || throw(DimensionMismatch())
+        sorted = sort(
+            ax
+            |> unique
+            |> enumerate
+            |> collect;
+            by=pair -> objectid(pair[2].space)
+        )
+        @boundscheck length(sorted) == length(ax) || throw(DimensionMismatch("Duplicate dimensions."))
+        new{N}(
+            SVector{N}(last.(sorted)),
+            push!(permutedims(data, first.(sorted)), zero(ℂ))
+        )
+    end
 end
 Base.copy(ψ::State) = State(ψ)
 Base.axes(ψ::State) = Tuple(ψ.ax)
+Base.vec( ψ::State) = @view ψ.data[begin:end - 1]
 
-(*)(d::∂, ψ::State)                           = central_diff(     ψ; dims=d.wrt)
-LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = central_diff!(dψ, ψ; dims=d.wrt)
+@inline (*)(                          d::∂, ψ::State) = central_diff(     ψ; dims=d.wrt)
+@inline LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = central_diff!(dψ, ψ; dims=d.wrt)
 # dψ .= (diff(  cat((   wrt.periodic ? identity : zeros∘axes)(ψ[d.wrt => end  ]), ψ; dims=d.wrt), d.wrt)
 #        + diff(cat(ψ, (wrt.periodic ? identity : zeros∘axes)(ψ[d.wrt => begin])   ; dims=d.wrt), d.wrt))/2
 
@@ -359,8 +381,6 @@ Base.firstindex(::State) = FirstIndex()
 Base.lastindex( ::State) =  LastIndex()
 Base.firstindex(::State, ::Integer) = FirstIndex()
 Base.lastindex( ::State, ::Integer) =  LastIndex()
-Base.show(::IO, ::FirstIndex) = throw(ArgumentError("You must specify the dimension of which to retrieve the first index"))
-Base.show(::IO, ::LastIndex ) = throw(ArgumentError("You must specify the dimension of which to retrieve the last index"))
 SymbolicUtils.istree(::Index) = false
 struct IndexExpression <: SymbolicIndex{Real}
     f::Function
@@ -387,60 +407,94 @@ TermInterface.exprhead(::IndexRange) = :call
 SymbolicUtils.operation(::IndexRange{F}) where F = F
 SymbolicUtils.arguments(range::IndexRange) = range.args
 
-function central_diff!(dψ::State{N}, ψ::State{N}; dims::Space{T}) where {N, T}
-    axes(dψ) == axes(ψ) || throw(DimensionMismatch())
-    dim = only(searchsorted(ψ.ax, dims; by=objectid))
-    # Second-order finite difference method:
-    i = LinearIndices(ψ)
-    @inline indices(replacement) =
-        i[to_indices(i, ntuple(ifelse(i -> i == dim, replacement, :), Val(N)))]
-    start = firstindex(i, dim) + 1
-    stop  =  lastindex(i, dim) - 1
-    dψ.data[      indices(    start:stop    )] .= (
-        ψ.data[  indices(start + 1:stop + 1)]
-        - ψ.data[indices(start - 1:stop - 1)]
-    )/2
-    dψ.data[indices(start - 1)] .= (
-        (dims.periodic ? ψ.data[indices(stop + 1)] : zero(T))
-        .- ψ.data[indices(start)]
-    )/2
-    dψ.data[indices(stop + 1)] .= (
-        (dims.periodic ? ψ.data[indices(start - 1)] : zero(T))
-        .- ψ.data[indices(stop)]
-    )/2
-
-    dψ[:] = (ψ[:, dims => begin + 1:end + 1] - ψ[:, dims => begin - 1:end - 1])/2
-    dψ
-end
-central_diff!(dψ::State, ψ::State; dims::Length) = central_diff!(dψ, ψ; dims=dims.space)
-central_diff(ψ::State; dims::Length) = central_diff!(similar(ψ), ψ; dims=dims.space)
-
 Base.keytype(ψ::State{N}) where N = Point{N}
 Base.eachindex(ψ::State) = Points(axes(ψ))
 
-Base.to_index(ψ::State, i::Coordinate) = nothing
-Base.to_index(ψ::State, i::(Pair{Space{T}, <: AbstractRange{T}} where T)) = nothing
-Base.to_index(ψ::State, i::Pair{<: Space, Colon}) = ψ.ax[only(searchsorted(ψ.ax, i.first; by=objectid))].indices
-Base.to_index(ψ::State, @nospecialize i::Pair{<: Space, <: SymbolicIndex}) =
+Base.axes(ψ::State, space::Space) = @inbounds ψ.ax[only(searchsorted(ψ.ax, space; by=objectid))]
+@propagate_inbounds function to_index(ψ::State, i::Coordinate)
+    found = searchsorted(axes(ψ, i.first), i.second)
+    if isempty(found)
+        
+    end
+end
+@propagate_inbounds to_index(ψ::State, i::(Pair{Space{T}, <: AbstractRange{T}} where T)) = nothing
+@propagate_inbounds to_index(ψ::State, i::Pair{<: Space, Colon}) = axes(ψ, i.first) |> length |> Base.OneTo
+@propagate_inbounds function to_index(ψ::State, i::(Pair{Space{T}, Length{T}} where T)) =
+    @boundscheck i.second.space === i.first || throw(DimensionMismatch())
+    to_index(ψ, i.first => i.second.indices)
+end
+to_index(ψ::State, i::Pair{<: Space, <: SymbolicIndex}) =
     Base.to_index(ψ, i.first => SymbolicUtils.substitute(i.second, Dict(
         FirstIndex() => firstindex(ψ, i.first),
         LastIndex()  =>  lastindex(ψ, i.first)
     )))
+AbstractTrees.children(::Pair{<: Space}) = ()
+AbstractTrees.childrentype(::Pair{<: Space}) = Tuple{}
+"""Stateful iterator."""
+struct IndicesIterator
+    ψ::State
+    ax::Vector{Length}
+    indices::Vector{Pair{<: Space}}
+    keep::Bool
+
+    IndicesIterator(ψ::State, ax::Volume, indices::Tuple{Vararg{Union{
+        Pair{<: Space},
+        Length,
+        Point,
+        Points
+    }}}; keep=false) = new(
+        ψ,
+        collect(ax),
+        sort!(
+            convert.(Pair, AbstractTrees.Leaves(indices));
+            by=objectid∘first
+        ),
+        keep
+    )
+
+    function Base.iterate(itr::IndicesIterator)
+        if isempty(itr.ax)
+            isempty(itr.indices) || throw(DimensionMismatch())
+            return
+        end
+        l, rest... = itr.ax
+        if l.space === first(itr.indices).first
+            Base.to_index(itr.ψ, popfirst!(itr.indices))
+        elseif itr.keep
+            l.indices
+        end, new(itr.ψ, rest, itr.indices)
+    end
+end
+IndicesIterator(ψ, ax, indices::Tuple{Vararg{>: Colon   }}) = IndicesIterator(ψ, ax, filter(!=(:),  indices); keep=true)
+IndicesIterator(ψ, ax, indices::Tuple{Vararg{>: Type{..}}}) = IndicesIterator(ψ, ax, filter(!=(..), indices); keep=true)
+Base.to_indices(ψ::State{N}, ax::Volume{N}, indices::Tuple{}) where N =
+    NTuple{N, Union{Nothing, }}(IndicesIterator(ψ, ax, indices))
 # function Base.getindex(ψ::State, i::HigherDimensionalSpaceIndex)
 #     ψ.data[LinearIndices(eachindex.(Base.getfield.(axes(ψ), :indices)))[i.values...]]
 # end
-Base.getindex(ψ::State, indices::Union{(Pair{Space{T}, <: Union{T, AbstractRange{T}, Colon}} where T), Colon}...) =
-    ψ[HigherDimensionalSpaceIndex(axes(ψ), to_indices(ψ, indices))]
 
 Base.similar(::Type{State}, ax::Volume{N}) where N = similar(State{N}, ax)
 Base.similar(::Type{State{N}}, ax::Volume{N}) where N = State(ax)
 
-Base.fill!(ψ::State, value::ℂ) = fill!(ψ.data, value)
+Base.fill!(ψ::State, value::ℂ) = fill!(vec(ψ), value)
 Base.fill(value::ℂ, ax::NonEmptyVolume) = fill!(similar(State, ax), value)
 Base.zeros(T::Type{ℂ}, ax::NonEmptyVolume) = fill(zero(ℂ), ax)
 Base.ones( T::Type{ℂ}, ax::NonEmptyVolume) = fill( one(ℂ), ax)
 Base.zeros(ax::NonEmptyVolume) = zeros(ℂ, ax)
 Base.ones( ax::NonEmptyVolume) =  ones(ℂ, ax)
+
+function central_diff!(dψ::State{N}, ψ::State{N}; dim::Space{T}) where {N, T}
+    @boundscheck axes(dψ) == axes(ψ) || throw(DimensionMismatch())
+    # Second-order finite difference method:
+    dψ .= (ψ[.., dims => begin + 1:end + 1] - ψ[.., dims => begin - 1:end - 1])/2
+end
+@inline central_diff!(dψ::State, ψ::State; dims::Tuple{}) = dψ .= ψ
+@propagate_inbounds central_diff!(dψ::State, ψ::State; dims::Tuple{Space}) = central_diff!(dψ, ψ; dims[1])
+@propagate_inbounds central_diff!(dψ::State, ψ::State; dims::Tuple{Space, Space, Vararg{Space}}) =
+    reduce(dims; init=(dψ, similar(ψ))) do (dψ, ddψ), dim # Partial derivatives are associative.
+        central_diff!(ddψ, ψ; dim), dψ
+    end |> first
+central_diff(ψ::State; kwargs...) = central_diff!(similar(ψ), ψ; kwargs...)
 
 function trim!(ψ::State)
     r = axes(ψ)[1]
@@ -455,7 +509,7 @@ end
 """
 Tensor product of multiple states.
 """
-Base.kron(ψ::State, φ::State) = State(axes(ψ)×axes(φ), kron(ψ.data, φ.data))
+@propagate_inbounds Base.kron(ψ::State, φ::State) = State(axes(ψ)×axes(φ), kron(vec(ψ), vec(φ)))
 const ⊗ = kron
 
 function LinearAlgebra.dot(ψ::State, φ::State)
