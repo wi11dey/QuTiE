@@ -26,7 +26,7 @@ SymbolicUtils.arguments(exp::SymbolicIndexExpression) = exp.args
 struct SymbolicRange{F <: AbstractRange} <: SymbolicIndex{F}
     args::Vector{SymbolicPosition}
 end
-(::Type{F <: AbstractRange})(args::SymbolicPosition...) where F = args |> collect |> SymbolicRange{F}
+(F::Union{Type{<: AbstractRange}, Colon})(args::SymbolicPosition...) where F = args |> collect |> SymbolicRange{F}
 SymbolicUtils.istree(::SymbolicRange) = true
 TermInterface.exprhead(::SymbolicRange) = :call
 SymbolicUtils.operation(::SymbolicRange{F}) where F = F
@@ -34,6 +34,6 @@ SymbolicUtils.arguments(range::SymbolicRange) = range.args
 
 Base.to_index(ψ::State, i::Pair{<: Space, <: SymbolicIndex}) =
     Base.to_index(ψ, i.first => SymbolicUtils.substitute(i.second, Dict(
-        FirstIndex() => firstindex(ψ, axis),
-        LastIndex()  =>  lastindex(ψ, axis)
+        FirstIndex() => firstindex(ψ, i.first),
+        LastIndex()  =>  lastindex(ψ, i.first)
     )))

@@ -27,59 +27,44 @@ include("space.jl")
 include("qubits.jl")
 include("length.jl")
 include("volume.jl")
+include("state.jl")
 
 Base.axes(op::Operator) = filter_type(Space, op) |> unique |> Volume
 
-struct State{N} <: AbstractArray{ℂ, N}
-    ax::Volume{N}
-    data::Vector{ℂ}
-
-    inv::IdDict{Space, ℤ}
-
-    function State{N}(ax::Volume{N}, data::Vector{ℂ}) where N
-        @boundscheck length(data) == ax .|> length |> prod || throw(DimensionMismatch())
-        @boundscheck length(unique(ax)) == length(ax) || throw(DimensionMismatch("Duplicate dimensions."))
-        new{N}(
-            ax,
-            push!(data, zero(ℂ)),
-
-            Base.getindex.(ax, :space) |> enumerate .|> reverse |> IdDict
-        )
-    end
-    State{N}(ψ::State{N}) where N = new{N}(ψ.ax, copy(ψ.data), ψ.inv)
-end
-State{N}(ax::Volume{N}) where N = @inbounds State{N}(ax, Vector{ℂ}(undef, ax .|> length |> prod))
-Base.copy(ψ::State) = State(ψ)
-Base.axes(ψ::State) = ψ.ax
-Base.vec( ψ::State) = @inbounds @view ψ.data[begin:end - 1]
-
-function Base.axes(ψ::State{N}, space::Space) where N
-    @boundscheck space ∈ ψ.inv || throw(DimensionMismatch())
-    @inbounds ψ.ax[ψ.inv[space]]
-end
-Base.firstindex(ψ::State, space::Space) = first(axes(ψ, space))
-Base.lastindex( ψ::State, space::Space) =  last(axes(ψ, space))
-
-include("symbolic_index.jl")
-
-abstract type ScaledIndex{T <: Real, N} <: AbstractVector{T, N} end
-struct ScaledPosition{T} <: ScaledIndex{T, 0}
+abstract type RawIndex{T <: Real, N} <: AbstractArray{T, N} end
+IndexStyle(::RawIndex) = IndexLinear()
+struct RawPosition{T} <: RawIndex{T, 0}
     pos::T
 end
-(::Type{ScaledPosition})(frame::AbstractRange{T}, pos::Real) = nothing
-struct ScaledRange{T} <: ScaledIndex{T, 1}
+Base.getindex(pos::RawPosition) = pos.pos
+Base.size(::RawPosition) = ()
+Base.to_index(pos::RawPosition) = pos.pos
+(::Type{>: T})(pos::RawPosition{T}) where T = pos.pos
+Base.convert(::Type{>: T}, pos::RawPosition{T}) where T = T(pos)
+struct RawRange{T} <: RawIndex{T, 1}
     range::AbstractRange{T}
 end
-(::Type{ScaledRange})(frame::AbstractRange{T}, pos::Real) = nothing
-(::Type{ScaledIndex})(context::AbstractRange, pos::Real           ) = ScaledPosition(context, pos)
-(::Type{ScaledIndex})(context::AbstractRange, range::AbstractRange) =    ScaledRange(context, pos)
-@inline Base.to_index(ψ::State, ::Missing) = missing
-@inline Base.to_index(ψ::State, i::(Pair{Space{T}, T} where T)) = i.second
-@inline Base.to_index(ψ::State, i::(Pair{Space{T}, <: AbstractRange{T}} where T)) = i.second
-@inline Base.to_index(ψ::State, i::Pair{<: Space, Colon}) = axes(ψ, i.first).indices
-@propagate_inbounds function Base.to_index(ψ::State, i::(Pair{Space{T}, Length{T}} where T)) =
+Base.getindex(range::RawRange, i::ℤ) = range.range[i]
+Base.size(range::RawRange) = size(range.range)
+Base.to_index(range::RawRange) = range.range
+Base.convert(::Type{AbstractRange{>: T}}, range::RawRange{T}) where T = T(range.range)
+
+Base.convert(::Type{>: Pair{Space{T}}}, i::Pair{Length{T}}) where T = i.first.space => i.second
+
+# Fallback definitions (recursion broken by more specific methods):
+@propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Space}) =
+    Base.to_index(ψ, axes(ψ, i.first) => i.second)
+@propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Length}) =
+    Base.to_index(ψ, convert(Pair{Space}, i))
+@inline Base.to_index(ψ::State, i::Pair{<: Length, Colon}) = i.first |> length |> Base.OneTo |> RawRange{ℤ}
+@inline Base.to_index(ψ::State, i::Pair{<: Length, Missing}) = (:)
+@inline Base.to_index(ψ::State, i::(Pair{Length{T}, T} where T)) =
+    nothing
+@inline Base.to_index(ψ::State, i::(Pair{Length{T}, <: AbstractRange{T}} where T)) =
+    nothing
+@propagate_inbounds function Base.to_index(ψ::State, i::(Pair{Length{T}, Length{T}} where T)) =
     @boundscheck i.second.space === i.first || throw(DimensionMismatch())
-    Base.to_index(ψ, i.first => i.second.indices)
+    Base.to_index(ψ, i.first => (i.second.indices == axes(ψ, i.first).indices ? (:) : i.second.indices))
 end
 AbstractTrees.children(::Pair{<: Space}) = ()
 AbstractTrees.childrentype(::Pair{<: Space}) = Tuple{}
@@ -87,37 +72,36 @@ function Base.to_indices(
     ψ::State{N},
     ax::Volume{N},
     indices::Tuple{Vararg{Union{
-        Pair{>: Space},
+        Pair{<: Union{Length, Space}},
         Length,
         Volume,
         Colon,
         Type{..}
     }}}
     ) where N =
-        summing = true
+    summing = true
     lookup = IdDict(
-        convert(Pair, i)
+        convert(Pair{Space}, i)
         for i ∈ AbstractTrees.Leaves(indices)
             if !(i == : || i == ..) || (summing = false))
-    Interpolations.coordlookup.(
-        Base.getfield.(axes(ψ), :indices),
-        to_index.(Ref(ψ), get.(Ref(lookup), ax, missing))
+    Base.to_index.(
+        Ref(ψ),
+        ax .=> get.(
+            Ref(lookup),
+            Base.getfield.(ax, :space),
+            summing ? missing : (:)
+        )
     )
 end
 
 @inline Base.convert(::Type{>: AbstractExtrapolation}, ψ::State) = extrapolate(
-    scale(
-        interpolate(
-            reshape(
-                ψ |> vec,
-                ψ |> axes .|> length
-            ),
-            map(axes(ψ)) do l
-                BSpline(Quadratic((l.space.periodic ? Periodic : Natural)(OnCell())))
-            end
+    interpolate(
+        reshape(
+            ψ |> vec,
+            ψ |> axes .|> length
         ),
         map(axes(ψ)) do l
-            l.indices
+            BSpline(Quadratic((l.space.periodic ? Periodic : Natural)(OnCell())))
         end
     ),
     map(axes(ψ)) do l
@@ -125,8 +109,10 @@ end
     end
 )
 
-Base.getindex(ψ::State, indices...) =
+Base.getindex(ψ::State, indices::RawIndex...) =
     convert(AbstractInterpolation, ψ)(to_indices(ψ, indices)...)
+
+Base.setindex!(ψ::State, indices::RawIndex{ℤ}...) = nothing
 
 Base.similar(::Type{State}, ax::Volume{N}) where N = similar(State{N}, ax)
 Base.similar(::Type{State{N}}, ax::Volume{N}) where N = State(ax)
