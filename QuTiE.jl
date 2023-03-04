@@ -28,26 +28,6 @@ include("qubits.jl")
 include("length.jl")
 include("volume.jl")
 
-struct Differential{n, T <: AbstractFloat} <: LinearOperator{T}
-    wrt::Dimension{T} # v6: ∂(::Time) for classical objects
-
-    Base.getindex(::Type{∂{n}}, wrt::Dimension{T}) where {n, T} = new{n, T}(wrt)
-end
-const ∂ = Differential
-export ∂
-(^)(::Type{∂{n}}, m::ℤ) where n = ∂{n*m}
-for i ∈ 2:10
-    partial = Symbol("∂"*sup(i))
-    @eval const $partial = ∂{$i}
-    @eval export $partial
-end
-Base.getindex(::Type{∂}, args...) = ∂{1}[args...]
-Base.getindex(::Type{∂{n}}, args...) where n = ∂{1}[args...]^n
-getops(d::∂) = (d.wrt,)
-
-SymbolicUtils.operation(::∂{1}) = ∂
-Base.size(d::∂) = size(d.wrt)
-
 Base.axes(op::Operator) = filter_type(Space, op) |> unique |> Volume
 
 struct State{N} <: AbstractArray{ℂ, N}
@@ -73,11 +53,6 @@ Base.copy(ψ::State) = State(ψ)
 Base.axes(ψ::State) = ψ.ax
 Base.vec( ψ::State) = @inbounds @view ψ.data[begin:end - 1]
 
-@inline (*)(                          d::∂, ψ::State) = central_diff(     ψ; dims=d.wrt)
-@inline LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = central_diff!(dψ, ψ; dims=d.wrt)
-# dψ .= (diff(  cat((   wrt.periodic ? identity : zeros∘axes)(ψ[d.wrt => end  ]), ψ; dims=d.wrt), d.wrt)
-#        + diff(cat(ψ, (wrt.periodic ? identity : zeros∘axes)(ψ[d.wrt => begin])   ; dims=d.wrt), d.wrt))/2
-
 function Base.axes(ψ::State{N}, space::Space) where N
     @boundscheck space ∈ ψ.inv || throw(DimensionMismatch())
     @inbounds ψ.ax[ψ.inv[space]]
@@ -87,6 +62,17 @@ Base.lastindex( ψ::State, space::Space) =  last(axes(ψ, space))
 
 include("symbolic_index.jl")
 
+abstract type ScaledIndex{T <: Real, N} <: AbstractVector{T, N} end
+struct ScaledPosition{T} <: ScaledIndex{T, 0}
+    pos::T
+end
+(::Type{ScaledPosition})(frame::AbstractRange{T}, pos::Real) = nothing
+struct ScaledRange{T} <: ScaledIndex{T, 1}
+    range::AbstractRange{T}
+end
+(::Type{ScaledRange})(frame::AbstractRange{T}, pos::Real) = nothing
+(::Type{ScaledIndex})(context::AbstractRange, pos::Real           ) = ScaledPosition(context, pos)
+(::Type{ScaledIndex})(context::AbstractRange, range::AbstractRange) =    ScaledRange(context, pos)
 @inline Base.to_index(ψ::State, ::Missing) = missing
 @inline Base.to_index(ψ::State, i::(Pair{Space{T}, T} where T)) = i.second
 @inline Base.to_index(ψ::State, i::(Pair{Space{T}, <: AbstractRange{T}} where T)) = i.second
@@ -94,13 +80,6 @@ include("symbolic_index.jl")
 @propagate_inbounds function Base.to_index(ψ::State, i::(Pair{Space{T}, Length{T}} where T)) =
     @boundscheck i.second.space === i.first || throw(DimensionMismatch())
     Base.to_index(ψ, i.first => i.second.indices)
-end
-abstract type ScaledIndex{T <: Real} end
-struct ScaledPosition <: ScaledIndex
-    i::ℤ
-end
-struct ScaledRange <: ScaledIndex
-    range::OrdinalRange{ℤ, ℤ}
 end
 AbstractTrees.children(::Pair{<: Space}) = ()
 AbstractTrees.childrentype(::Pair{<: Space}) = Tuple{}
@@ -159,28 +138,7 @@ Base.ones( T::Type{ℂ}, ax::NonEmptyVolume) = fill( one(ℂ), ax)
 Base.zeros(ax::NonEmptyVolume) = zeros(ℂ, ax)
 Base.ones( ax::NonEmptyVolume) =  ones(ℂ, ax)
 
-struct Derivative{n, N, T} <: AbstractArray{ℂ, N}
-    wrt::ℤ
-    ψ::State{N}
-end
-(d::∂{n, T})(ψ::State{N}) where {n, N, T} = Derivative{n, N, T}(ψ.inv[d.wrt], ψ)
-@propagate_inbounds function Base.getindex(D::Derivative{1}, args...) =
-    itp = convert(AbstractInterpolation, D.ψ)
-    indices = to_indices(D.ψ, args)
-    @boundscheck checkbounds(Bool, itp, indices...) || Base.throw_boundserror(D.ψ, x)
-    map(Iterators.product(indices)) do coords
-        # v2: reuse weights
-        wis = Interpolations.weightedindexes(
-            (
-                Interpolations.value_weights,
-                Interpolations.gradient_weights
-            ),
-            Interpolations.itpinfo(itp)...,
-            coords
-        )
-        Interpolations.InterpGetindex(itp)[wis[D.wrt]...]
-    end
-end
+include("differentiation.jl")
 
 function trim!(ψ::State)
     r = axes(ψ)[1]
