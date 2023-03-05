@@ -21,8 +21,6 @@ isbounded(  l::Length) = isbounded(  l.space)
 isperiodic( l::Length) = isperiodic( l.space)
 isclassical(l::Length) = isclassical(l.space)
 
-Base.convert(::Type{>: Pair{Space{T}}}, l::Length{T}) where T = l.space => l.indices
-
 function Base.show(io::IO, l::Length)
     name = get(get(io, :spaces, IdDict{Space, Char}()), l.space, nothing)
     if isnothing(name)

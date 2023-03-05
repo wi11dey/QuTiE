@@ -54,14 +54,14 @@ end
 Sum(len::ℤ) = Base.OneTo(len)
 Base.convert(::Type{>: Base.OneTo{ℤ}}, index::Sum) = index.i
 
-Base.convert(::Type{>: Pair{Space{T}, U    }}, i::Pair{Length{T}, U}) where {T, U} = i.first.space => i.second
-Base.convert(::Type{>: Pair{Space{T}, Colon}}, i::Space{T}          ) where  T     = i             => (:)
+to_coordinate(i::Pair{<: Space}) = i
+to_coordinate(i::Pair{<: Length}) = i.first.space => i.second
+to_coordinate(i::Space) = i => (:)
+to_coordinate(l::Length) = l.space => l.indices
 
 # Fallback definitions (recursion broken by more specific methods):
-@propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Space}) =
-    Base.to_index(ψ, axes(ψ, i.first) => i.second)
-@propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Length}) =
-    Base.to_index(ψ, convert(Pair{Space}, i))
+@propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Space }) = Base.to_index(ψ, axes(ψ, i.first) => i.second)
+@propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Length}) = Base.to_index(ψ, to_coordinate(i))
 @inline Base.to_index(ψ::State, i::Pair{<: Length, Colon}) = i.first |> length |> Base.OneTo |> RawRange{ℤ}
 @inline Base.to_index(ψ::State, i::Pair{<: Length, Missing}) = Sum(length(i.first))
 @inline Base.to_index(ψ::State, i::(Pair{Length{T}, T} where T)) =
@@ -88,7 +88,7 @@ function Base.to_indices(
     }}}) =
         summing = true
     lookup = IdDict(
-        convert(Pair{Space}, i)
+        to_coordinate(i)
         for i ∈ AbstractTrees.Leaves(indices)
             if !(i == : || i == ..) || (summing = false))
     Base.to_index.(
