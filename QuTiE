@@ -1,19 +1,28 @@
-#!/usr/bin/env julia --project=.
+#!/usr/bin/env bash
+#=
+exec julia --project="${BASH_SOURCE[0]%/*}" "${BASH_SOURCE[0]}" "$@"
+=#
 
-println("asfdas")
-
-using QuTiE
-using DifferentialEquations
-# using AlgebraOfGraphics
-using LaTeXStrings
-# using Makie
-# try
-#     using GLMakie
-# catch
-#     using CairoMakie
-# end
-using Revise
-using PhysicalConstants: CODATA2018, PhysicalConstant
+print("Loading QuTiE...\r")
+flush(stdout)
+using ProgressMeter
+requirements = quote
+    using QuTiE
+    using DifferentialEquations
+    using AlgebraOfGraphics
+    using LaTeXStrings
+    # using Makie
+    # try
+    #     using GLMakie
+    # catch
+    #     using CairoMakie
+    # end
+    using Revise
+    using PhysicalConstants: CODATA2018, PhysicalConstant
+end
+@showprogress 0.5 "Loading QuTiE..." for requirement ∈ requirements.args
+    @eval $requirement
+end
 
 for name in names(CODATA2018, all=true)
     @eval if CODATA2018.$name isa PhysicalConstant
@@ -28,14 +37,10 @@ const 𝑖 = im
 
 __revise_mode__ = :evalassign
 
-if abspath(PROGRAM_FILE) == @__FILE__
-    if length(ARGS) ≠ 1 || ARGS[1] ∈ ("-h", "--help", "-?")
-        error("Usage: ./$PROGRAM_FILE spec.jl")
-    end
-    includet(ARGS[1])
-    if !isdefined(:ψ₀)
-        error("Must define initial state ψ₀")
-    end
+function main(arguments::String...)
+    length(arguments) == 1 && ARGS[1] ∉ ("-h", "--help", "-?") || error("Usage: ./$PROGRAM_FILE spec.jl")
+    includet(arguments[1])
+    isdefined(:ψ₀) || error("Must define initial state ψ₀")
     if isdefined(:H) || isdefined(:ℋ)
         if isdefined(:H) && isdefined(:ℋ)
             error("Cannot define both H and ℋ")
@@ -96,3 +101,21 @@ if abspath(PROGRAM_FILE) == @__FILE__
         @show ψ, t
     end
 end
+
+function julia_main()::Cint
+    try
+        main(ARGS...)
+    catch
+        Base.invokelatest(Base.display_error, Base.catch_stack())
+        return 1
+    end
+    return 0
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main(ARGS...)
+end
+
+# Local Variables:
+# mode: julia
+# End:

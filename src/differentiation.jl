@@ -1,5 +1,5 @@
 # v2: save weights on update_coefficients!
-struct Differential{n, T <: AbstractFloat} <: LinearOperator{T}
+struct Differential{n, T <: AbstractFloat} <: Operator{T}
     wrt::Dimension{T} # v6: ∂(::Time) for classical objects
 
     Base.getindex(::Type{Differential{n}}, wrt::Dimension{T}) where {n, T} = new{n, T}(wrt)
@@ -15,6 +15,7 @@ end
 Base.getindex(::Type{∂}, args...) = ∂{1}[args...]
 Base.getindex(::Type{∂{n}}, args...) where n = ∂{1}[args...]^n
 getops(d::∂) = (d.wrt,)
+islinear(::Differential) = true
 
 SymbolicUtils.operation(::∂{1}) = ∂
 Base.size(d::∂) = size(d.wrt)
