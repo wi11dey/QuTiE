@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #=
-exec julia --project="${BASH_SOURCE[0]%/*}" "${BASH_SOURCE[0]}" "$@"
+exec julia --color=yes --project="${BASH_SOURCE[0]%/*}" "${BASH_SOURCE[0]}" "$@"
 =#
 
 print("Loading QuTiE...\r")
@@ -38,7 +38,7 @@ const 𝑖 = im
 __revise_mode__ = :evalassign
 
 function main(arguments::String...)
-    length(arguments) == 1 && ARGS[1] ∉ ("-h", "--help", "-?") || error("Usage: ./$PROGRAM_FILE spec.jl")
+    length(arguments) == 1 && ARGS[1] ∉ ("-h", "--help", "-?") || error("Usage: ./$(normpath(PROGRAM_FILE)) spec.jl")
     includet(arguments[1])
     isdefined(:ψ₀) || error("Must define initial state ψ₀")
     if isdefined(:H) || isdefined(:ℋ)
