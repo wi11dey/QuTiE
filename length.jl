@@ -11,11 +11,16 @@ function Length{T}(space::Space{T}) where T
     Length{T}(space, -10.0:10.0)
 end
 Length{T}(space::Space{T}) where {T <: Integer} = Length{T}(space, -10:10)
+Base.convert(::Type{>: Length{T}}, space::Space{T}) where T = Length{T}(space)
+
 Base.length(l::Length) = length(l.indices)
 Base.first( l::Length) =  first(l.indices)
 Base.last(  l::Length) =   last(l.indices)
 
-Base.convert(::Type{>: Length{T}}, space::Space{T}) where T = Length{T}(space)
+isbounded(  l::Length) = isbounded(  l.space)
+isperiodic( l::Length) = isperiodic( l.space)
+isclassical(l::Length) = isclassical(l.space)
+
 Base.convert(::Type{>: Pair{Space{T}}}, l::Length{T}) where T = l.space => l.indices
 
 function Base.show(io::IO, l::Length)

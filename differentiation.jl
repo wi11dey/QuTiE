@@ -1,3 +1,4 @@
+# v2: save weights on update_coefficients!
 struct Differential{n, T <: AbstractFloat} <: LinearOperator{T}
     wrt::Dimension{T} # v6: ∂(::Time) for classical objects
 
@@ -18,28 +19,29 @@ getops(d::∂) = (d.wrt,)
 SymbolicUtils.operation(::∂{1}) = ∂
 Base.size(d::∂) = size(d.wrt)
 
-@inline (*)(                          d::∂, ψ::State) = central_diff(     ψ; dims=d.wrt)
-@inline LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = central_diff!(dψ, ψ; dims=d.wrt)
-
+# v2: optimize for whole array access
 struct Derivative{n, N, T} <: AbstractArray{ℂ, N}
     wrt::ℤ
     ψ::State{N}
+    itp::AbstractInterpolation
 end
-(d::∂{n, T})(ψ::State{N}) where {n, N, T} = Derivative{n, N, T}(ψ.inv[d.wrt], ψ)
-@propagate_inbounds function Base.getindex(D::Derivative{1}, args...) =
-    itp = convert(AbstractInterpolation, D.ψ)
-    indices = to_indices(D.ψ, args)
-    @boundscheck checkbounds(Bool, itp, indices...) || Base.throw_boundserror(D.ψ, x)
+(d::∂{n, T})(ψ::State{N}) where {n, N, T} = Derivative{n, N, T}(ψ.inv[d.wrt], ψ, interpolate(D.ψ))
+Base.axes(D::Derivative, args...) = axes(D.ψ, args...)
+function Base.to_indices(D::Derivative{1}, ax::Volume, indices)
+    indices = to_indices(D.ψ, indices)
     map(Iterators.product(indices)) do coords
-        # v2: reuse weights
-        wis = Interpolations.weightedindexes(
+        Interpolations.weightedindexes(
             (
                 Interpolations.value_weights,
                 Interpolations.gradient_weights
             ),
-            Interpolations.itpinfo(itp)...,
+            Interpolations.itpinfo(D.itp)...,
             coords
-        )
-        Interpolations.InterpGetindex(itp)[wis[D.wrt]...]
-    end
+        )[D.wrt]
+    end |> tuple
 end
+@propagate_inbounds Base.getindex(D::Derivative{1, N}, index::NTuple{N, Interpolations.WeightedIndex}) where N =
+    Interpolations.InterpGetindex(D.itp)[index...]
+
+@inline (*)(                          d::∂, ψ::State) = mul!(similar(dψ), d, ψ)
+@inline LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = dψ .= @view d(ψ)[:]

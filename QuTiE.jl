@@ -31,25 +31,31 @@ include("state.jl")
 
 Base.axes(op::Operator) = filter_type(Space, op) |> unique |> Volume
 
-abstract type RawIndex{T <: Real, N} <: AbstractArray{T, N} end
-IndexStyle(::RawIndex) = IndexLinear()
-struct RawPosition{T} <: RawIndex{T, 0}
-    pos::T
+abstract type ConvertedIndex{N, T <: Real} <: AbstractArray{T, N} end
+Base.to_index(index::ConvertedIndex) = index.i
+IndexStyle(::ConvertedIndex) = IndexLinear()
+Base.getindex(index::ConvertedIndex{0}) = index.i
+Base.size(index::ConvertedIndex{0}) = ()
+(::Type{>: T})(index::ConvertedIndex{0, T}) where T = index.i
+Base.convert(::Type{>: T}, index::ConvertedIndex{0, T}) where T = T(index)
+Base.size(index::ConvertedIndex{1}) = size(index.i)
+@propagate_inbounds Base.getindex(index::ConvertedIndex{1}, j::ℤ) = index.i[j]
+abstract type RawIndex{N, T <: Real} <: ConvertedIndex{N, T} end
+struct RawPosition{T} <: RawIndex{0, T}
+    i::T
 end
-Base.getindex(pos::RawPosition) = pos.pos
-Base.size(::RawPosition) = ()
-Base.to_index(pos::RawPosition) = pos.pos
-(::Type{>: T})(pos::RawPosition{T}) where T = pos.pos
-Base.convert(::Type{>: T}, pos::RawPosition{T}) where T = T(pos)
 struct RawRange{T} <: RawIndex{T, 1}
-    range::AbstractRange{T}
+    i::AbstractRange{T}
 end
-Base.getindex(range::RawRange, i::ℤ) = range.range[i]
-Base.size(range::RawRange) = size(range.range)
-Base.to_index(range::RawRange) = range.range
-Base.convert(::Type{AbstractRange{>: T}}, range::RawRange{T}) where T = T(range.range)
+Base.convert(::Type{AbstractRange{>: T}}, index::RawRange{T}) where T = index.i
+struct Sum <: ConvertedIndex
+    i::Base.OneTo{ℤ}
+end
+Sum(len::ℤ) = Base.OneTo(len)
+Base.convert(::Type{>: Base.OneTo{ℤ}}, index::Sum) = index.i
 
-Base.convert(::Type{>: Pair{Space{T}}}, i::Pair{Length{T}}) where T = i.first.space => i.second
+Base.convert(::Type{>: Pair{Space{T}, U    }}, i::Pair{Length{T}, U}) where {T, U} = i.first.space => i.second
+Base.convert(::Type{>: Pair{Space{T}, Colon}}, i::Space{T}          ) where  T     = i             => (:)
 
 # Fallback definitions (recursion broken by more specific methods):
 @propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Space}) =
@@ -57,29 +63,30 @@ Base.convert(::Type{>: Pair{Space{T}}}, i::Pair{Length{T}}) where T = i.first.sp
 @propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Length}) =
     Base.to_index(ψ, convert(Pair{Space}, i))
 @inline Base.to_index(ψ::State, i::Pair{<: Length, Colon}) = i.first |> length |> Base.OneTo |> RawRange{ℤ}
-@inline Base.to_index(ψ::State, i::Pair{<: Length, Missing}) = (:)
+@inline Base.to_index(ψ::State, i::Pair{<: Length, Missing}) = Sum(length(i.first))
 @inline Base.to_index(ψ::State, i::(Pair{Length{T}, T} where T)) =
-    nothing
+    nothing # v2
 @inline Base.to_index(ψ::State, i::(Pair{Length{T}, <: AbstractRange{T}} where T)) =
-    nothing
+    nothing # v2
 @propagate_inbounds function Base.to_index(ψ::State, i::(Pair{Length{T}, Length{T}} where T)) =
     @boundscheck i.second.space === i.first || throw(DimensionMismatch())
     Base.to_index(ψ, i.first => (i.second.indices == axes(ψ, i.first).indices ? (:) : i.second.indices))
 end
-AbstractTrees.children(::Pair{<: Space}) = ()
-AbstractTrees.childrentype(::Pair{<: Space}) = Tuple{}
+AbstractTrees.children(::Pair{<: Union{Length, Space}}) = ()
+AbstractTrees.childrentype(::Pair{<: Union{Length, Space}}) = Tuple{}
+# v2: optimize for whole array access
 function Base.to_indices(
-    ψ::State{N},
-    ax::Volume{N},
+    ψ::State,
+    ax::Volume,
     indices::Tuple{Vararg{Union{
         Pair{<: Union{Length, Space}},
+        Space,
         Length,
         Volume,
         Colon,
         Type{..}
-    }}}
-    ) where N =
-    summing = true
+    }}}) =
+        summing = true
     lookup = IdDict(
         convert(Pair{Space}, i)
         for i ∈ AbstractTrees.Leaves(indices)
@@ -89,40 +96,32 @@ function Base.to_indices(
         ax .=> get.(
             Ref(lookup),
             Base.getfield.(ax, :space),
-            summing ? missing : (:)
-        )
-    )
+            summing ? missing : (:)))
 end
+(::Type{>: AbstractArray{ℂ, N}})(ψ::State{N}) where N =
+    reshape(
+        ψ |> vec,
+        ψ |> axes .|> length
+    )
+Base.convert(::Type{>: AbstractArray{ℂ, N}}, ψ::State{N}) where N =
+    AbstractArray{ℂ, N}(ψ)
 
-@inline Base.convert(::Type{>: AbstractExtrapolation}, ψ::State) = extrapolate(
-    interpolate(
-        reshape(
-            ψ |> vec,
-            ψ |> axes .|> length
-        ),
-        map(axes(ψ)) do l
-            BSpline(Quadratic((l.space.periodic ? Periodic : Natural)(OnCell())))
-        end
-    ),
-    map(axes(ψ)) do l
-        l.space.periodic ? Periodic : zero(ℂ)
-    end
-)
-
-Base.getindex(ψ::State, indices::RawIndex...) =
-    convert(AbstractInterpolation, ψ)(to_indices(ψ, indices)...)
-
-Base.setindex!(ψ::State, indices::RawIndex{ℤ}...) = nothing
-
-Base.similar(::Type{State}, ax::Volume{N}) where N = similar(State{N}, ax)
-Base.similar(::Type{State{N}}, ax::Volume{N}) where N = State(ax)
-
-Base.fill!(ψ::State, value::ℂ) = fill!(vec(ψ), value)
-Base.fill(value::ℂ, ax::NonEmptyVolume) = fill!(similar(State, ax), value)
-Base.zeros(T::Type{ℂ}, ax::NonEmptyVolume) = fill(zero(ℂ), ax)
-Base.ones( T::Type{ℂ}, ax::NonEmptyVolume) = fill( one(ℂ), ax)
-Base.zeros(ax::NonEmptyVolume) = zeros(ℂ, ax)
-Base.ones( ax::NonEmptyVolume) =  ones(ℂ, ax)
+Interpolations.interpolate(ψ::State) =
+    extrapolate(
+        interpolate(
+            AbstractArray(ψ),
+            ifelse.(isperiodic.(axes(ψ)),
+                    Periodic(OnCell()),
+                    Natural( OnCell()))
+            .|> Quadratic
+            .|> BSpline),
+        ifelse.(isperiodic.(axes(ψ)),
+                Periodic(),
+                zero(ℂ)))
+Base.getindex(ψ::State{N}, indices::Vararg{ConvertedIndex, N}) where N = sum(Interpolations.interpolate(ψ)(indices...); dims=findall(index -> index isa Sum, indices))
+Base.getindex(ψ::State{N}, indices::Vararg{RawIndex,       N}) where N =     Interpolations.interpolate(ψ)(indices...)
+Base.setindex!(ψ::State{N}, indices::Vararg{RawIndex{ℤ}, N}, value) where N =
+    AbstractArray(ψ)[indices...] .= value
 
 include("differentiation.jl")
 

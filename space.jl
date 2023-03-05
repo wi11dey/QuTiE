@@ -1,4 +1,4 @@
-export Space, ..
+export Space, .., isbounded, isperiodic, isclassical
 
 mutable struct Space{T} <: Dimension{T}
     const lower::Compactification{T}
@@ -104,3 +104,4 @@ Base.isinf(space::Space) = !isfinite(space)
 isclassical(space::Space) = space.classical
 Base.length(space::Space{<: Integer}) = isfinite(space) ? last(space) - first(space) : ℶ₀
 Base.length(space::Space) = ℶ₁
+isperiodic(space::Space) = space.periodic
