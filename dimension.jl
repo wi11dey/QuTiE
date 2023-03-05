@@ -1,3 +1,5 @@
+export depends
+
 abstract type Dimension{T <: Real} <: Operator{T} end
 SymbolicUtils.istree(::Dimension) = false
 getops(::Dimension) = ()

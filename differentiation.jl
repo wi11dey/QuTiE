@@ -2,7 +2,7 @@
 struct Differential{n, T <: AbstractFloat} <: LinearOperator{T}
     wrt::Dimension{T} # v6: ∂(::Time) for classical objects
 
-    Base.getindex(::Type{∂{n}}, wrt::Dimension{T}) where {n, T} = new{n, T}(wrt)
+    Base.getindex(::Type{Differential{n}}, wrt::Dimension{T}) where {n, T} = new{n, T}(wrt)
 end
 const ∂ = Differential
 export ∂

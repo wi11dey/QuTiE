@@ -16,17 +16,17 @@ SymbolicUtils.istree(::SymbolicIndexExpression) = true
 TermInterface.exprhead(::SymbolicIndexExpression) = :call
 SymbolicUtils.operation(exp::SymbolicIndexExpression) = exp.f
 SymbolicUtils.arguments(exp::SymbolicIndexExpression) = exp.args
-(::Type{F <: Union{
+(F::Type{<: Union{
     typeof(+),
     typeof(-),
     typeof(*),
     typeof(/),
     typeof(^)
-}})(a, b) where F = SymbolicIndexExpression(F, [a, b])
+}})(a, b) = SymbolicIndexExpression(F, [a, b])
 struct SymbolicRange{F <: AbstractRange} <: SymbolicIndex{F}
     args::Vector{SymbolicPosition}
 end
-(F::Union{Type{<: AbstractRange}, Colon})(args::SymbolicPosition...) where F = args |> collect |> SymbolicRange{F}
+(F::Type{<: Union{AbstractRange, Colon}})(args::SymbolicPosition...) = args |> collect |> SymbolicRange{F}
 SymbolicUtils.istree(::SymbolicRange) = true
 TermInterface.exprhead(::SymbolicRange) = :call
 SymbolicUtils.operation(::SymbolicRange{F}) where F = F

@@ -10,11 +10,6 @@ using Interpolations
 # using ModelingToolkit, SymbolicUtils # v4/5
 # using MarchingCubes, ConstructiveGeometry, Compose # v6/7
 
-export 𝑖, ∜, ×, depends, isbounded, isclassical
-
-const 𝑖 = im
-∜(x::ℝ) = x^(1/4)
-
 include("algebra.jl")
 include("scripts.jl")
 include("infinites.jl")
@@ -28,102 +23,9 @@ include("qubits.jl")
 include("length.jl")
 include("volume.jl")
 include("state.jl")
-
-Base.axes(op::Operator) = filter_type(Space, op) |> unique |> Volume
-
-abstract type ConvertedIndex{N, T <: Real} <: AbstractArray{T, N} end
-Base.to_index(index::ConvertedIndex) = index.i
-IndexStyle(::ConvertedIndex) = IndexLinear()
-Base.getindex(index::ConvertedIndex{0}) = index.i
-Base.size(index::ConvertedIndex{0}) = ()
-(::Type{>: T})(index::ConvertedIndex{0, T}) where T = index.i
-Base.convert(::Type{>: T}, index::ConvertedIndex{0, T}) where T = T(index)
-Base.size(index::ConvertedIndex{1}) = size(index.i)
-@propagate_inbounds Base.getindex(index::ConvertedIndex{1}, j::ℤ) = index.i[j]
-abstract type RawIndex{N, T <: Real} <: ConvertedIndex{N, T} end
-struct RawPosition{T} <: RawIndex{0, T}
-    i::T
-end
-struct RawRange{T} <: RawIndex{T, 1}
-    i::AbstractRange{T}
-end
-Base.convert(::Type{AbstractRange{>: T}}, index::RawRange{T}) where T = index.i
-struct Sum <: ConvertedIndex
-    i::Base.OneTo{ℤ}
-end
-Sum(len::ℤ) = Base.OneTo(len)
-Base.convert(::Type{>: Base.OneTo{ℤ}}, index::Sum) = index.i
-
-to_coordinate(i::Pair{<: Space}) = i
-to_coordinate(i::Pair{<: Length}) = i.first.space => i.second
-to_coordinate(i::Space) = i => (:)
-to_coordinate(l::Length) = l.space => l.indices
-
-# Fallback definitions (recursion broken by more specific methods):
-@propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Space }) = Base.to_index(ψ, axes(ψ, i.first) => i.second)
-@propagate_inbounds Base.to_index(ψ::State, i::Pair{<: Length}) = Base.to_index(ψ, to_coordinate(i))
-@inline Base.to_index(ψ::State, i::Pair{<: Length, Colon}) = i.first |> length |> Base.OneTo |> RawRange{ℤ}
-@inline Base.to_index(ψ::State, i::Pair{<: Length, Missing}) = Sum(length(i.first))
-@inline Base.to_index(ψ::State, i::(Pair{Length{T}, T} where T)) =
-    nothing # v2
-@inline Base.to_index(ψ::State, i::(Pair{Length{T}, <: AbstractRange{T}} where T)) =
-    nothing # v2
-@propagate_inbounds function Base.to_index(ψ::State, i::(Pair{Length{T}, Length{T}} where T)) =
-    @boundscheck i.second.space === i.first || throw(DimensionMismatch())
-    Base.to_index(ψ, i.first => (i.second.indices == axes(ψ, i.first).indices ? (:) : i.second.indices))
-end
-AbstractTrees.children(::Pair{<: Union{Length, Space}}) = ()
-AbstractTrees.childrentype(::Pair{<: Union{Length, Space}}) = Tuple{}
-# v2: optimize for whole array access
-function Base.to_indices(
-    ψ::State,
-    ax::Volume,
-    indices::Tuple{Vararg{Union{
-        Pair{<: Union{Length, Space}},
-        Space,
-        Length,
-        Volume,
-        Colon,
-        Type{..}
-    }}}) =
-        summing = true
-    lookup = IdDict(
-        to_coordinate(i)
-        for i ∈ AbstractTrees.Leaves(indices)
-            if !(i == : || i == ..) || (summing = false))
-    Base.to_index.(
-        Ref(ψ),
-        ax .=> get.(
-            Ref(lookup),
-            Base.getfield.(ax, :space),
-            summing ? missing : (:)))
-end
-(::Type{>: AbstractArray{ℂ, N}})(ψ::State{N}) where N =
-    reshape(
-        ψ |> vec,
-        ψ |> axes .|> length
-    )
-Base.convert(::Type{>: AbstractArray{ℂ, N}}, ψ::State{N}) where N =
-    AbstractArray{ℂ, N}(ψ)
-
-Interpolations.interpolate(ψ::State) =
-    extrapolate(
-        interpolate(
-            AbstractArray(ψ),
-            ifelse.(isperiodic.(axes(ψ)),
-                    Periodic(OnCell()),
-                    Natural( OnCell()))
-            .|> Quadratic
-            .|> BSpline),
-        ifelse.(isperiodic.(axes(ψ)),
-                Periodic(),
-                zero(ℂ)))
-Base.getindex(ψ::State{N}, indices::Vararg{ConvertedIndex, N}) where N = sum(Interpolations.interpolate(ψ)(indices...); dims=findall(index -> index isa Sum, indices))
-Base.getindex(ψ::State{N}, indices::Vararg{RawIndex,       N}) where N =     Interpolations.interpolate(ψ)(indices...)
-Base.setindex!(ψ::State{N}, indices::Vararg{RawIndex{ℤ}, N}, value) where N =
-    AbstractArray(ψ)[indices...] .= value
-
 include("differentiation.jl")
+include("lie_groups.jl")
+include("classical.jl")
 
 function trim!(ψ::State)
     r = axes(ψ)[1]
@@ -149,9 +51,6 @@ end
 
 # using MakieCore
 
-include("lie_groups.jl")
-include("classical.jl")
-
 end
 
 using ..QuTiE
@@ -175,6 +74,8 @@ for name in names(CODATA2018, all=true)
 end
 
 const ħ² = ħ^2
+const 𝑖 = im
+∜(x::ℝ) = x^(1/4)
 
 __revise_mode__ = :evalassign
 
@@ -198,7 +99,13 @@ if abspath(PROGRAM_FILE) == @__FILE__
             H = ℋ
         end
         # Hamiltonian formulation:
-        ψ = Observable([ψ₀*ones(axes(H))])
+        ψ = Observable([(
+            filter_type(Space, op)
+            |> unique
+            |> Volume
+            |> ones
+            |> Base.Fix1(*, ψ₀)
+        )])
         integrator = init(ODEProblem(-im*H/ħ, ψ[][begin], (0, ∞)))
     end
     if isdefined(:L) || isdefined(:ℒ)
