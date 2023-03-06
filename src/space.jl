@@ -1,8 +1,10 @@
-export Space, .., isbounded, isperiodic, isclassical
+using Infinity
+
+export Space, ∞, .., isbounded, isperiodic, isclassical
 
 mutable struct Space{T} <: Dimension{T}
-    const lower::Compactification{T}
-    const upper::Compactification{T}
+    const lower::InfExtendedReal{T}
+    const upper::InfExtendedReal{T}
     const periodic::Bool
     const classical::Bool # ℂ^T Hilbert space if false.
 
@@ -65,29 +67,11 @@ Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), las
 Space{Bool}() = Space{Bool}(0, 1)
 
 function Base.show(io::IO, space::Space)
-    spaces = get(io, :spaces, nothing)
-    if isnothing(spaces)
-        print(io, "Space{$(getsymbol(eltype(space)))}($(space.lower)..$(space.upper)")
-        if !get(io, :compact, false)
-            print(io, ", periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary)")
-        end
-        print(io, ")")
-        return
+    print(io, "$(getsymbol(eltype(space)))($(space.lower.val)..$(space.upper.val)")
+    if !get(io, :compact, false)
+        print(io, ", periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary)")
     end
-    name = get(spaces, space, nothing)
-    if isnothing(name)
-        names = get(io, :names, nothing)
-        if !isnothing(names)
-            spaces[space] = newname = first(names)
-            print(io, "($newname := ")
-        end
-        show(IOContext(io, :spaces => nothing), space)
-        if !isnothing(names)
-            print(io, ")")
-        end
-        return
-    end
-    print(io, name)
+    print(io, ")")
 end
 
 const .. = Space

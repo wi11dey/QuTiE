@@ -1,5 +1,5 @@
-t = Time()
-x = Space{ℝ}(-∞, ∞)
+@time t
+@space x := ℝ(-∞, ∞; periodic, classical)
 
 # Harmonic potential:
 k = 1

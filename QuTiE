@@ -8,17 +8,17 @@ flush(stdout)
 using ProgressMeter
 requirements = quote
     using QuTiE
+    using PhysicalConstants: CODATA2018, PhysicalConstant
     using DifferentialEquations
     using AlgebraOfGraphics
     using LaTeXStrings
+    using Revise
     # using Makie
     # try
     #     using GLMakie
     # catch
     #     using CairoMakie
     # end
-    using Revise
-    using PhysicalConstants: CODATA2018, PhysicalConstant
 end
 @showprogress 0.5 "Loading QuTiE..." for requirement ∈ requirements.args
     @eval $requirement
@@ -33,6 +33,7 @@ end
 const ħ² = ħ^2
 const 𝑖 = im
 ∜(x::ℝ) = x^(1/4)
+const t = Time()
 
 __revise_mode__ = :evalassign
 

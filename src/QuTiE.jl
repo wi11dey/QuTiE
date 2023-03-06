@@ -10,7 +10,7 @@ using Interpolations
 
 include("algebra.jl")
 include("scripts.jl")
-include("infinites.jl")
+include("strong_limit_cardinals.jl")
 include("operators.jl")
 include("dirac_delta.jl")
 include("dimension.jl")
