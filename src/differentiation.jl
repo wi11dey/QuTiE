@@ -2,11 +2,12 @@
 struct Differential{n, T <: AbstractFloat} <: Operator{T}
     wrt::Dimension{T} # v6: ∂(::Time) for classical objects
 
-    Base.getindex(::Type{Differential{n}}, wrt::Dimension{T}) where {n, T} = new{n, T}(wrt)
+    Base.getindex(::Type{Differential{1}}, wrt::Dimension{T}) where T = new{1, T}(wrt)
 end
 const ∂ = Differential
 export ∂
 (^)(::Type{∂{n}}, m::ℤ) where n = ∂{n*m}
+(^)(::Type{∂   }, m::ℤ) = ∂{1}^m
 for i ∈ 2:10
     partial = Symbol("∂"*sup(i))
     @eval const $partial = ∂{$i}
@@ -17,8 +18,14 @@ Base.getindex(::Type{∂{n}}, args...) where n = ∂{1}[args...]^n
 getops(d::∂) = (d.wrt,)
 islinear(::Differential) = true
 
-SymbolicUtils.operation(::∂{1}) = ∂
 Base.size(d::∂) = size(d.wrt)
+SymbolicUtils.operation(::∂{1}) = ∂{1}
+Base.show(io::IO, ::Type{<: ∂{1}}) = print(io, "∂")
+function SymbolicUtils.show_call(io::IO, d::Type{<: ∂{1}}, args::AbstractVector)
+    print(io, d, "[")
+    join(io, args, ", ")
+    print(io, "]")
+end
 
 # v2: optimize for whole array access
 struct Derivative{n, N, T} <: AbstractArray{ℂ, N}
@@ -45,4 +52,4 @@ end
     Interpolations.InterpGetindex(D.itp)[index...]
 
 @inline (*)(                          d::∂, ψ::State) = mul!(similar(dψ), d, ψ)
-@inline LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = dψ .= @view d(ψ)[:]
+@inline LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = dψ .= d(ψ)

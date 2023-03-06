@@ -11,7 +11,8 @@ function Length{T}(space::Space{T}) where T
     Length{T}(space, -10.0:10.0)
 end
 Length{T}(space::Space{T}) where {T <: Integer} = Length{T}(space, -10:10)
-Base.convert(::Type{>: Length{T}}, space::Space{T}) where T = Length{T}(space)
+Base.convert(::Type{Length{T}}, space::Space{T}) where T = Length{T}(space)
+Base.convert(::Type{Length   }, space::Space{T}) where T = convert(Length{T}, space)
 
 Base.length(l::Length) = length(l.indices)
 Base.first( l::Length) =  first(l.indices)

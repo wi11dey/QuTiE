@@ -1,9 +1,10 @@
-import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, FunctionOperator, AdjointOperator, islinear
+import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, FunctionOperator, AdjointOperator, InvertedOperator, islinear
 
 (^)(op::Operator, n::ℤ) = ComposedOperator(Iterators.repeated(op, n)...)
 SymbolicUtils.istree(::Operator) = true
 TermInterface.exprhead(::Operator) = :call
 SymbolicUtils.operation(::Union{ComposedOperator, ComposedScalarOperator, ScaledOperator}) = (*)
+SymbolicUtils.operation(::InvertedOperator) = inv
 SymbolicUtils.operation(::ScalarOperator) = identity
 SymbolicUtils.operation(::AddedOperator) = (+)
 SymbolicUtils.operation(::AdjointOperator) = adjoint
@@ -28,7 +29,7 @@ function Base.show(io::IO, op::Operator)
     if !get(io, :compact, false)
         printed = false
         for space ∈ filter_type(Space, op)
-            get!(Ref(spaces), space) do
+            get!(spaces, space) do
                 newname = first(names)
                 print(io, "$newname = ")
                 show(IOContext(io, :spaces => nothing), space)

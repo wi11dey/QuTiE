@@ -24,10 +24,9 @@ end
     @eval $requirement
 end
 
-for name in names(CODATA2018, all=true)
+for name ∈ names(CODATA2018, all=true)
     @eval if CODATA2018.$name isa PhysicalConstant
         import PhysicalConstants.CODATA2018: $name
-        export $name
     end
 end
 
