@@ -33,3 +33,4 @@ Base.show(io::IO, ::Val{-Inf}) = print(io, "-∞")
 const Compactification{T <: Number} = Union{T, typeof(-∞), typeof(∞)} # Two-point compactification.
 Base.typemin(::Type{>: Val{-Inf}}) = -∞
 Base.typemax(::Type{>: Val{ Inf}}) =  ∞
+Base.convert(::Type{<: Compactification{T}}, val) where T = convert(T, val)
