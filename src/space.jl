@@ -1,8 +1,9 @@
 using Infinity
+using MacroTools
 
-export Space, ∞, .., isbounded, isperiodic, isclassical
+export @space, ∞, .., isbounded, isperiodic, isclassical
 
-mutable struct Space{T} <: Dimension{T}
+mutable struct Space{T, name} <: Dimension{T}
     const lower::InfExtendedReal{T}
     const upper::InfExtendedReal{T}
     const periodic::Bool
@@ -13,13 +14,13 @@ mutable struct Space{T} <: Dimension{T}
     const ε::real(ℂ) # Minimum modulus.
     const canary::T # Storage types should store enough cells to have at least this much canary border.
 
-    function Space{T}(lower,
-                      upper;
-                      periodic=false,
-                      classical=false, # v6
-                      a=nothing,
-                      ε=1e-5,
-                      canary=nothing) where T
+    function Space{T, name}(lower,
+                            upper;
+                            periodic=false,
+                            classical=false, # v6
+                            a=nothing,
+                            ε=1e-5,
+                            canary=nothing) where {T, name}
         bounded = isfinite(lower) && isfinite(upper)
         !bounded && periodic && throw(ArgumentError("Unbounded space cannot be periodic"))
         lower == upper && throw(ArgumentError("Null space"))
@@ -38,7 +39,7 @@ mutable struct Space{T} <: Dimension{T}
             end
         end
 
-        new(
+        new{T, name}(
             lower,
             upper,
             periodic,
@@ -66,12 +67,43 @@ Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords
 Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); a=step(range), keywords...)
 Space{Bool}() = Space{Bool}(0, 1)
 
-function Base.show(io::IO, space::Space)
-    print(io, "$(getsymbol(eltype(space)))($(space.lower.val)..$(space.upper.val)")
-    if !get(io, :compact, false)
-        print(io, ", periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary)")
+macro space(expr)
+    power = 1
+    args = params = ()
+    @capture(expr, name_Symbol := definition_)
+    @capture(definition, T_Symbol)                       && @goto parsed
+    @capture(definition, T_Symbol^power_Int)             && @goto parsed
+    @capture(definition, T_Symbol^(power_Int*(args__,))) && @goto parsed
+    @capture(definition, (T_Symbol^power_Int)(args__))   && @goto parsed
+    @capture(definition, T_Symbol(args__)^power_Int)     && @goto parsed
+    @capture(definition, T_Symbol(args__))               && @goto parsed
+    error("""Incorrect usage of @space. Use like:
+
+@space x := ℝ(0, ∞)
+""")
+    @label parsed
+    @show name
+    @show T
+    @show power
+    @show args
+    power > 0 || error("Dimensions must be greater than zero")
+    map!(args, args) do arg
+        Meta.isexpr(arg, :parameters) || return arg
+        Expr(:parameters, (kw isa Symbol ? Expr(:kw, kw, true) : kw for kw in arg.args)...)
     end
-    print(io, ")")
+    value = if power > 1
+        :([$((:(Space{$T, $("$name[$i]" |> Symbol |> Meta.quot)}($(args...))) for i ∈ 1:power)...)])
+    else
+        :(Space{$T, $(name |> Meta.quot)}($(args...)))
+    end
+    :($name = $value)
+end
+
+function Base.show(io::IO, space::Space{T, name}) where {T, name}
+    print(io, name)
+    if !get(io, :compact, false)
+        print(io, " := $(getsymbol(eltype(space)))($(space.lower.val)..$(space.upper.val), periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
+    end
 end
 
 const .. = Space
