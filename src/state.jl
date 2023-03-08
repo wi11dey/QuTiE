@@ -1,10 +1,16 @@
-struct State{N} <: AbstractArray{ℂ, N}
-    ax::Volume{N}
-    data::Vector{ℂ}
+struct Dim{S, T} <: DimensionalData.Dimension{AbstractRange{T}}
+    parent::DimensionalData.Dim{S, AbstractRange{T}}
 
-    inv::IdDict{Space, ℤ}
+    (::Type{Dim{S}})(indices::AbstractRange) where S = Dim{S, eltype(S)}(DimensionalData.Dim)
+end
 
-    function State{N}(ax::Volume{N}, data::Vector{ℂ}) where N
+DimensionalData.name()
+
+const Parent{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
+struct State{N, D} <: AbstractDimArray{ℂ, N, D, Parent{N}}
+    parent::DimArray{ℂ, N, D, Parent{N}}
+
+    function State{N}(ax::Volume{N}, data::Vector{ℂ}) where {N}
         @boundscheck length(data) == ax .|> length |> prod || throw(DimensionMismatch())
         @boundscheck length(unique(ax)) == length(ax) || throw(DimensionMismatch("Duplicate dimensions."))
         new{N}(
@@ -19,7 +25,7 @@ end
 State{N}(ax::Volume{N}) where N = @inbounds State{N}(ax, Vector{ℂ}(undef, ax .|> length |> prod))
 Base.copy(ψ::State) = State(ψ)
 Base.axes(ψ::State) = ψ.ax
-Base.vec( ψ::State) = @inbounds @view ψ.data[begin:end - 1]
+Base.vec( ψ::State) = @inbounds @view ψ.data[:]
 Base.size(ψ::State) = length.(axes(ψ))
 Base.length(ψ::State) = prod(size(ψ))
 Base.IteratorSize(::Type{State{N}}) where N = Base.HasShape{N}()

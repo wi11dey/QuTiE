@@ -15,31 +15,5 @@ SymbolicUtils.arguments(op::Operator) = getops(op) |> collect
 SymbolicUtils.arguments(op::ScaledOperator) = [convert(Number, getops(op)[1]), getops(op)[2:end]...]
 filter_type(T::Type, op::Operator) = Iterators.filter(el -> el isa T, AbstractTrees.PostOrderDFS(op))
 
-function Base.show(io::IO, op::Operator)
-    names = get(io, :names, nothing)
-    if isnothing(names)
-        names = Iterators.Stateful(Char(i) for i ∈ Iterators.countfrom(0) if islowercase(Char(i)) && Char(i) ≠ 't')
-        io = IOContext(io, :names => names)
-    end
-    spaces = get(io, :spaces, nothing)
-    if isnothing(spaces)
-        spaces = IdDict{Space, Char}()
-        io = IOContext(io, :spaces => spaces)
-    end
-    if !get(io, :compact, false)
-        printed = false
-        for space ∈ filter_type(Space, op)
-            get!(spaces, space) do
-                newname = first(names)
-                print(io, "$newname = ")
-                show(IOContext(io, :spaces => nothing), space)
-                println(";")
-                printed = true
-                return newname
-            end
-        end
-        printed && println()
-    end
-    SymbolicUtils.show_term(io, op)
-end
+Base.show(io::IO, op::Operator) = SymbolicUtils.show_term(IOContext(io, :compact => true), op)
 Base.show(io::IO, op::ScalarOperator) = print(io, convert(Number, op))

@@ -3,22 +3,22 @@ using MacroTools
 
 export @space, ∞, .., isbounded, isperiodic, isclassical
 
-mutable struct Space{T, name} <: Dimension{T}
-    const lower::InfExtendedReal{T}
-    const upper::InfExtendedReal{T}
-    const periodic::Bool
-    const classical::Bool # ℂ^T Hilbert space if false.
+struct Space{T, name} <: Dimension{T}
+    lower::InfExtendedReal{T}
+    upper::InfExtendedReal{T}
+    periodic::Bool
+    classical::Bool # ℂ^T Hilbert space if false.
 
     # v2: resample/interpolate when grid too large or not enough samples
-    const a::Union{T, Nothing} # (Maximum) lattice spacing.
-    const ε::real(ℂ) # Minimum modulus.
-    const canary::T # Storage types should store enough cells to have at least this much canary border.
+    a::T # (Maximum) lattice spacing.
+    ε::real(ℂ) # Minimum modulus.
+    canary::T # Storage types should store enough cells to have at least this much canary border.
 
     function Space{T, name}(lower,
                             upper;
                             periodic=false,
                             classical=false, # v6
-                            a=nothing,
+                            a=zero(T),
                             ε=1e-5,
                             canary=nothing) where {T, name}
         bounded = isfinite(lower) && isfinite(upper)
@@ -68,8 +68,7 @@ Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), las
 Space{Bool}() = Space{Bool}(0, 1)
 
 macro space(expr)
-    power = 1
-    args = params = ()
+    args = ()
     @capture(expr, name_Symbol := definition_)
     @capture(definition, T_Symbol)                       && @goto parsed
     @capture(definition, T_Symbol^power_Int)             && @goto parsed
@@ -80,23 +79,21 @@ macro space(expr)
     error("""Incorrect usage of @space. Use like:
 
 @space x := ℝ(0, ∞)
+@space 𝐫 := ℝ^3
 """)
     @label parsed
-    @show name
-    @show T
-    @show power
-    @show args
+    power = something(power, 1)
     power > 0 || error("Dimensions must be greater than zero")
     map!(args, args) do arg
         Meta.isexpr(arg, :parameters) || return arg
         Expr(:parameters, (kw isa Symbol ? Expr(:kw, kw, true) : kw for kw in arg.args)...)
     end
     value = if power > 1
-        :([$((:(Space{$T, $("$name[$i]" |> Symbol |> Meta.quot)}($(args...))) for i ∈ 1:power)...)])
+        :([$((:($Space{$T, $("$name[$i]" |> Symbol |> Meta.quot)}($(args...))) for i ∈ 1:power)...)])
     else
-        :(Space{$T, $(name |> Meta.quot)}($(args...)))
+        :($Space{$T, $(name |> Meta.quot)}($(args...)))
     end
-    :($name = $value)
+    esc(:(const $name = $value))
 end
 
 function Base.show(io::IO, space::Space{T, name}) where {T, name}

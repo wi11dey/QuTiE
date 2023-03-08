@@ -1,5 +1,5 @@
 # Concrete types for abstract algebraic rings:
-for (symbol, ring) ∈ pairs((ℤ=Int, ℚ=Rational, ℝ=Float64, ℂ=ComplexF64))
+for (symbol, ring) ∈ pairs((𝔽₂=Bool, ℤ=Int, ℚ=Rational, ℝ=Float64, ℂ=ComplexF64))
     @eval const $symbol = $ring
     @eval export $symbol
     @eval getsymbol(::Type{$ring}) = $(Meta.quot(symbol))
