@@ -67,6 +67,8 @@ Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords
 Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); a=step(range), keywords...)
 Space{Bool}() = Space{Bool}(0, 1)
 
+DimensionalData.name(::Space{T, nme}) where {T, nme} = nme
+
 macro space(expr)
     args = ()
     @capture(expr, name_Symbol := definition_)
@@ -96,8 +98,8 @@ macro space(expr)
     esc(:(const $name = $value))
 end
 
-function Base.show(io::IO, space::Space{T, name}) where {T, name}
-    print(io, name)
+function Base.show(io::IO, space::Space)
+    print(io, name(space))
     if !get(io, :compact, false)
         print(io, " := $(getsymbol(eltype(space)))($(space.lower.val)..$(space.upper.val), periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
     end
@@ -111,10 +113,10 @@ Base.first(space::Space) = space.lower
 Base.last( space::Space) = space.upper
 Base.in(x::RealField, space::Space{<: Integer}) = false
 Base.in(x, space::Space) = first(space) ≤ x ≤ last(space)
-isbounded(space::Space) = isfinite(first(space)) && isfinite(last(space))
 Base.isfinite(space::Space) = isbounded(space) && eltype(space) <: Integer
 Base.isinf(space::Space) = !isfinite(space)
-isclassical(space::Space) = space.classical
 Base.length(space::Space{<: Integer}) = isfinite(space) ? last(space) - first(space) : ℶ₀
 Base.length(space::Space) = ℶ₁
+isbounded(space::Space) = isfinite(first(space)) && isfinite(last(space))
+isclassical(space::Space) = space.classical
 isperiodic(space::Space) = space.periodic

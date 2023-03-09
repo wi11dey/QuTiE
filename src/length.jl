@@ -1,17 +1,18 @@
-struct Length{T, name} <: AbstractRange{T}
-    space::Space{T, name}
-    indices::Axis{name, AbstractRange{T}}
+struct Length{S, T} <: DimensionalData.Dimension{T}
+    val::T
 end
-Length(space::Space{T, name}) where {T, name} = Length{T, name}(space, Axis(space))
+Length{S}(val::T) where {S, T} = Length{S, T}(val)
+Length{S}() where S = Length{S}(:)
 
-Base.length(l::Length) = length(l.indices)
-Base.first( l::Length) =  first(l.indices)
-Base.last(  l::Length) =   last(l.indices)
+DimensionalData.name(::Type{<: Length{S}}) where S = name(S)
+DimensionalData.basetypeof(::Type{<: Length{S}}) where S = Length{S}
+DimensionalData.key2dim(s::Dimension) = Length{s}()
+DimensionalData.dim2key(::Type{L}) where L <: Length{S} where S = S
 
-isbounded(  l::Length) = isbounded(  l.space)
-isperiodic( l::Length) = isperiodic( l.space)
-isclassical(l::Length) = isclassical(l.space)
+isbounded(  ::Length{S}) where S = isbounded(  S)
+isperiodic( ::Length{S}) where S = isperiodic( S)
+isclassical(::Length{S}) where S = isclassical(S)
 
-Base.show(io::IO, l::Length{T, name}) where {T, name} = print(io, "$name[$(l.indices)]")
+Base.show(io::IO, l::Length) = print(io, "$(name(l))[$(l.val)]")
 
-Base.getindex(space::Space{T, name}, indices::AbstractRange{T}) where {T, name} = Length{T, name}(space, Axis{name}(indices))
+Base.getindex(s::Dimension, indices) = Length{s}(indices)

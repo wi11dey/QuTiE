@@ -1,11 +1,3 @@
-struct Dim{S, T} <: DimensionalData.Dimension{AbstractRange{T}}
-    parent::DimensionalData.Dim{S, AbstractRange{T}}
-
-    (::Type{Dim{S}})(indices::AbstractRange) where S = Dim{S, eltype(S)}(DimensionalData.Dim)
-end
-
-DimensionalData.name()
-
 const Parent{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
 struct State{N, D} <: AbstractDimArray{ℂ, N, D, Parent{N}}
     parent::DimArray{ℂ, N, D, Parent{N}}
