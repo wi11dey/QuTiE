@@ -1,5 +1,6 @@
 using Infinity
 using MacroTools
+using StaticArrays
 
 export @space, ∞, .., isbounded, isperiodic, isclassical
 
@@ -65,12 +66,13 @@ Base.copy(space::Space) = Space(space)
 Space(upper) = Space(zero(upper), upper)
 Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords...)
 Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); a=step(range), keywords...)
-Space{Bool}() = Space{Bool}(0, 1)
+Space{T, name}() where {T <: Real, name} = Space{T, name}(-∞, ∞)
 
 DimensionalData.name(::Space{T, nme}) where {T, nme} = nme
 
 macro space(expr)
-    args = ()
+    power = 1
+    args = []
     @capture(expr, name_Symbol := definition_)
     @capture(definition, T_Symbol)                       && @goto parsed
     @capture(definition, T_Symbol^power_Int)             && @goto parsed
@@ -91,7 +93,7 @@ macro space(expr)
         Expr(:parameters, (kw isa Symbol ? Expr(:kw, kw, true) : kw for kw in arg.args)...)
     end
     value = if power > 1
-        :([$((:($Space{$T, $("$name[$i]" |> Symbol |> Meta.quot)}($(args...))) for i ∈ 1:power)...)])
+        :($SVector($((:($Space{$T, $("$name[$i]" |> Symbol |> Meta.quot)}($(args...))) for i ∈ 1:power)...)))
     else
         :($Space{$T, $(name |> Meta.quot)}($(args...)))
     end
@@ -101,7 +103,7 @@ end
 function Base.show(io::IO, space::Space)
     print(io, name(space))
     if !get(io, :compact, false)
-        print(io, " := $(getsymbol(eltype(space)))($(space.lower.val)..$(space.upper.val), periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
+        print(io, " := $(getsymbol(eltype(space)))($(space.lower.val), $(space.upper.val); periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
     end
 end
 

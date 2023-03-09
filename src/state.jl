@@ -1,6 +1,8 @@
-const Parent{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
-struct State{N, D} <: AbstractDimArray{ℂ, N, D, Parent{N}}
-    parent::DimArray{ℂ, N, D, Parent{N}}
+const Reshaped{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
+struct State{N, D} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
+    dimarray::DimArray{ℂ, N, D, Reshaped{N}} # Original
+    itp::Interpolations.FilledExtrapolation{ℂ, N, }
+    itp::Interpolations.BSplineInterpolation{ℂ, N, Parent{N}, } # Prefiltered
 
     function State{N}(ax::Volume{N}, data::Vector{ℂ}) where {N}
         @boundscheck length(data) == ax .|> length |> prod || throw(DimensionMismatch())
