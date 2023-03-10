@@ -25,6 +25,7 @@ Base.length(ψ::State) = prod(size(ψ))
 Base.IteratorSize(::Type{State{N}}) where N = Base.HasShape{N}()
 Base.IteratorEltype(::Type{<: State}) = Base.HasEltype()
 Base.eltype(::Type{<: State}) = ℂ
+Base.dims(ψ::State) = set.(ψ.dims, Ref(ψ.itp))
 
 function Base.axes(ψ::State{N}, space::Space) where N
     @boundscheck space ∈ ψ.inv || throw(DimensionMismatch())

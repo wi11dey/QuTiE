@@ -7,7 +7,7 @@ Length{S}() where S = Length{S}(:)
 DimensionalData.name(::Type{<: Length{S}}) where S = name(S)
 DimensionalData.basetypeof(::Type{<: Length{S}}) where S = Length{S}
 DimensionalData.key2dim(s::Dimension) = Length{s}()
-DimensionalData.dim2key(::Type{L}) where L <: Length{S} where S = S
+DimensionalData.dim2key(::Type{<: Length{S}}) where S = S
 
 isbounded(  ::Length{S}) where S = isbounded(  S)
 isperiodic( ::Length{S}) where S = isperiodic( S)

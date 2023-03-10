@@ -50,6 +50,7 @@ function Base.to_indices(D::Derivative{1}, ax::Volume, indices)
 end
 @propagate_inbounds Base.getindex(D::Derivative{1, N}, index::NTuple{N, Interpolations.WeightedIndex}) where N =
     Interpolations.InterpGetindex(D.itp)[index...]
+Base.getindex(::ComposedOperator{NTuple{2, Derivative{1}}})
 
 @inline (*)(                          d::∂, ψ::State) = mul!(similar(dψ), d, ψ)
 @inline LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = dψ .= d(ψ)

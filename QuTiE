@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #=
-exec julia --color=yes --project="${BASH_SOURCE[0]%/*}" "${BASH_SOURCE[0]}" "$@"
+exec julia --color=yes --threads=auto --project="${BASH_SOURCE[0]%/*}" "${BASH_SOURCE[0]}" "$@"
 =#
 
 print("Loading QuTiE...\r")

@@ -17,3 +17,5 @@ filter_type(T::Type, op::Operator) = Iterators.filter(el -> el isa T, AbstractTr
 
 Base.show(io::IO, op::Operator) = SymbolicUtils.show_term(IOContext(io, :compact => true), op)
 Base.show(io::IO, op::ScalarOperator) = print(io, convert(Number, op))
+
+include("parallel_operators.jl")

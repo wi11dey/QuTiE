@@ -4,7 +4,6 @@ import Base: +, -, *, /, ^, ==, @propagate_inbounds
 import TermInterface, SymbolicUtils
 import AbstractTrees
 using LinearAlgebra
-using Interpolations
 using DimensionalData
 # using ModelingToolkit, SymbolicUtils # v4/5
 # using MarchingCubes, ConstructiveGeometry, Compose # v6/7
@@ -19,13 +18,13 @@ include("commute.jl")
 include("time.jl")
 include("space.jl")
 include("qubit.jl")
-# include("axis.jl")
-# include("length.jl")
+include("interpolation.jl")
+include("length.jl")
 # include("volume.jl")
 # include("state.jl")
 # include("differentiation.jl")
-# include("lie_groups.jl")
-# include("classical.jl")
+include("lie_groups.jl")
+include("classical.jl")
 
 # function trim!(ψ::State)
 #     r = axes(ψ)[1]
