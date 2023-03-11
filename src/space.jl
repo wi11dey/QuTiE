@@ -2,7 +2,7 @@ using Infinity
 using MacroTools
 using StaticArrays
 
-export @space, ∞, .., isbounded, isperiodic, isclassical
+export @space, ∞, isfield, isbounded, isperiodic, isclassical
 
 struct Space{T, name} <: Dimension{T}
     lower::InfExtendedReal{T}
@@ -106,8 +106,6 @@ function Base.show(io::IO, space::Space)
         print(io, " := $(getsymbol(eltype(space)))($(space.lower.val), $(space.upper.val); periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
     end
 end
-
-const .. = Space
 
 ==(a::Space, b::Space) = a === b
 Base.hash(space::Space) = objectid(space)

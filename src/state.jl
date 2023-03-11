@@ -6,7 +6,8 @@ Base.size(itp::InterpolationWrapper) = itp |> parent |> size
 Base.getindex(itp::InterpolationWrapper, i...) = parent(itp)(i...)
 
 const Reshaped{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
-const Interpolation = Interpolations.BSplineInterpolation{}
+const Interpolation{N} = Interpolations.BSplineInterpolation{ℂ, N, OffsetArray{ℂ, N, Reshaped{N}}}
+const Extrapolation{N} = Interpolateions.FilledExtrapolation{ℂ, N}
 struct State{N, D} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
     data::DimArray{ℂ, N, D, Reshaped{N}}
     interpolated::DimArray{ℂ, N, D, Interpolation{ℂ, N, Reshaped{N}}}
@@ -14,19 +15,21 @@ struct State{N, D} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
     @propagate_inbounds function State{N}(ax::Volume{N}, data::Vector{ℂ}) where N
         @boundscheck length(unique(ax)) == length(ax) || throw(DimensionMismatch("Duplicate dimensions."))
         reshaped = reshape(@inbounds(view(data, :)), length.(ax))
-        spec = map(ax) do l
-            
-        end
-        spec = (ifelse.(isperiodic.(axes(ψ)),
-                        Periodic(OnCell()),
-                        Natural( OnCell()))
-                .|> Quadratic
-                .|> BSpline)
+        spec = ifelse.(isfield.(ax),
+                       ifelse.(isperiodic.(ax),
+                               Periodic(OnCell()),
+                               Natural( OnCell()))
+                       .|> Quadratic
+                       .|> BSpline,
+                       NoInterp())
+        padded = Interpolations.padded_axes(ax, spec)
+        prefiltered = reshape(view(Vector{ℂ}(undef, padded .|> length |> prod), :), padded)
+        interpolated = Interpolations.BSplineInterpolation(ℂ, prefiltered, it, ax)
+        extrapolated = Interpolations.FilledExtrapolation(interpolated, )
         new{N}(DimArray(reshaped, ax),
-               DimArray(reshape()),
+               DimArray(, set.(ax, DimensionalData.NoLookup())),
                Interpolations.FilledExtrapolation{ℂ, N}(BSplineInterpolation())
                extrapolate(
-                   interpolate(AbstractArray(ψ), spec),
                    ifelse.(isperiodic.(axes(ψ)),
                            Periodic(),
                            zero(ℂ))))
