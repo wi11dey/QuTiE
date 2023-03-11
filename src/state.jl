@@ -1,4 +1,8 @@
 const Reshaped{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
+
+struct InterpGetindexWrapper <: AbstractArray{}
+    
+end
 struct State{N, D} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
     dimarray::DimArray{ℂ, N, D, Reshaped{N}} # Original
     itp::Interpolations.FilledExtrapolation{ℂ, N, }

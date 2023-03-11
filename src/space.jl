@@ -93,15 +93,15 @@ macro space(expr)
         Expr(:parameters, (kw isa Symbol ? Expr(:kw, kw, true) : kw for kw in arg.args)...)
     end
     value = if power > 1
-        :($SVector($((:($Space{$T, $("$name[$i]" |> Symbol |> Meta.quot)}($(args...))) for i ∈ 1:power)...)))
+        :($SVector($((:($Space{$T, $("$name[$i]" |> gensym |> Meta.quot)}($(args...))) for i ∈ 1:power)...)))
     else
-        :($Space{$T, $(name |> Meta.quot)}($(args...)))
+        :($Space{$T, $(name |> gensym |> Meta.quot)}($(args...)))
     end
     esc(:(const $name = $value))
 end
 
 function Base.show(io::IO, space::Space)
-    print(io, name(space))
+    print(io, match(r"^##(?<tag>.+)#\d+$", space |> name |> string)[:tag])
     if !get(io, :compact, false)
         print(io, " := $(getsymbol(eltype(space)))($(space.lower.val), $(space.upper.val); periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
     end
