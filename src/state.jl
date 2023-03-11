@@ -1,22 +1,35 @@
-const Reshaped{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
-
-struct InterpGetindexWrapper <: AbstractArray{}
-    
+struct InterpolationWrapper{T, N, IT <: AbstractInterpolation{T, N}} <: AbstractArray{T, N}
+    parent::IT
 end
+Base.parent(itp::InterpolationWrapper) = wrapper.parent
+Base.size(itp::InterpolationWrapper) = itp |> parent |> size
+Base.getindex(itp::InterpolationWrapper, i...) = parent(itp)(i...)
+
+const Reshaped{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
+const Interpolation = Interpolations.BSplineInterpolation{}
 struct State{N, D} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
-    dimarray::DimArray{ℂ, N, D, Reshaped{N}} # Original
-    itp::Interpolations.FilledExtrapolation{ℂ, N, }
-    itp::Interpolations.BSplineInterpolation{ℂ, N, Parent{N}, } # Prefiltered
+    data::DimArray{ℂ, N, D, Reshaped{N}}
+    interpolated::DimArray{ℂ, N, D, Interpolation{ℂ, N, Reshaped{N}}}
 
-    function State{N}(ax::Volume{N}, data::Vector{ℂ}) where {N}
-        @boundscheck length(data) == ax .|> length |> prod || throw(DimensionMismatch())
+    @propagate_inbounds function State{N}(ax::Volume{N}, data::Vector{ℂ}) where N
         @boundscheck length(unique(ax)) == length(ax) || throw(DimensionMismatch("Duplicate dimensions."))
-        new{N}(
-            ax,
-            push!(data, zero(ℂ)),
-
-            Base.getindex.(ax, :space) |> enumerate .|> reverse |> IdDict
-        )
+        reshaped = reshape(@inbounds(view(data, :)), length.(ax))
+        spec = map(ax) do l
+            
+        end
+        spec = (ifelse.(isperiodic.(axes(ψ)),
+                        Periodic(OnCell()),
+                        Natural( OnCell()))
+                .|> Quadratic
+                .|> BSpline)
+        new{N}(DimArray(reshaped, ax),
+               DimArray(reshape()),
+               Interpolations.FilledExtrapolation{ℂ, N}(BSplineInterpolation())
+               extrapolate(
+                   interpolate(AbstractArray(ψ), spec),
+                   ifelse.(isperiodic.(axes(ψ)),
+                           Periodic(),
+                           zero(ℂ))))
     end
     State{N}(ψ::State{N}) where N = new{N}(ψ.ax, copy(ψ.data), ψ.inv)
 end
