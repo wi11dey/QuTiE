@@ -93,7 +93,7 @@ macro space(expr)
         Expr(:parameters, (kw isa Symbol ? Expr(:kw, kw, true) : kw for kw in arg.args)...)
     end
     value = if power > 1
-        :($SVector($((:($Space{$T, $("$name[$i]" |> gensym |> Meta.quot)}($(args...))) for i ∈ 1:power)...)))
+        :($SVector($((:($Space{$T, $("$name"*sub(i) |> gensym |> Meta.quot)}($(args...))) for i ∈ 1:power)...)))
     else
         :($Space{$T, $(name |> gensym |> Meta.quot)}($(args...)))
     end

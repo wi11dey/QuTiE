@@ -1,11 +1,11 @@
-const Reshaped{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
-const Interpolation{N, Spec} = Interpolations.BSplineInterpolation{ℂ, N, OffsetArray{ℂ, N, Reshaped{N}}, Spec, NTuple{N, Base.OneTo{ℤ}}}
-const Extrapolation{N, Spec} = Interpolations.FilledExtrapolation{ℂ, N, Interpolation{N, Spec}}
-struct State{N, D} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
-    data::DimArray{ℂ, N, D, Reshaped{N}}
-    interpolated::DimArray{ℂ, N, D, Interpolation{ℂ, N, Reshaped{N}}}
+# const Reshaped{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
+# const Interpolation{N, Spec} = Interpolations.BSplineInterpolation{ℂ, N, OffsetArray{ℂ, N, Reshaped{N}}, Spec, NTuple{N, Base.OneTo{ℤ}}}
+# const Extrapolation{N, Spec} = Interpolations.FilledExtrapolation{ℂ, N, Interpolations.{Interpolation{N, Spec}}, Spec, ℂ}
+struct State{N, D <: Volume{N}, Orig <: AbstractArray{ℂ, N}, Interp <: AbstractInterpolation{ℂ, N}} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
+    data::DimArray{        ℂ, N, D, Orig}
+    interpolated::DimArray{ℂ, N, D, IT  }
 
-    @propagate_inbounds function State{N}(ax::Volume{N}, data::Vector{ℂ}) where N
+    @propagate_inbounds function State{N}(ax::D, data::Vector{ℂ}) where N
         @boundscheck length(unique(ax)) == length(ax) || throw(DimensionMismatch("Duplicate dimensions."))
         reshaped = reshape(@inbounds(view(data, :)), length.(ax))
         spec = ifelse.(isfield.(ax),
@@ -17,13 +17,20 @@ struct State{N, D} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
                        NoInterp())
         padded = Interpolations.padded_axes(ax, spec)
         prefiltered = reshape(view(Vector{ℂ}(undef, padded .|> length |> prod), :), padded)
-        interpolated = Interpolations.BSplineInterpolation(ℂ, prefiltered, it, ax)
-        extrapolated = Interpolations.FilledExtrapolation(interpolated, )
+        itp = Interpolations.BSplineInterpolation(ℂ, prefiltered, spec, ax)
         new{N}(DimArray(reshaped, ax),
-               DimArray(, set.(ax, DimensionalData.NoLookup())),
-               Interpolations.FilledExtrapolation{ℂ, N}(BSplineInterpolation())
-               extrapolate(
-                   ifelse.(isperiodic.(axes(ψ)),
+               DimArray(extrapolate(extrapolate(
+                   itp,
+                   map(ax) do l
+                       isperiodic(l) && Periodic()
+                       
+                   end
+                   ifelse.(isperiodic.(ax),
+                           Periodic(),
+                           ifelse())
+               ), zero(ℂ)), set.(ax, DimensionalData.NoLookup())),
+               extrapolate(interpolated,
+                           ifelse.(isperiodic.(axes(ψ)),
                            Periodic(),
                            zero(ℂ))))
     end
