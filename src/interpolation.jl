@@ -1,35 +1,25 @@
 using Interpolations
-import DimensionalData.LookupArrays
 
-struct Interpolatable{T, D <: DimensionalData.Dimension{T}, IT <: AbstractInterpolation} <: DimensionalData.Dimension{T}
-    val::D
-    itp::IT
+struct InterpolationWrapper{T, N, IT <: AbstractInterpolation{T, N}} <: AbstractArray{T, N}
+    parent::IT
+end
+Base.parent(itp::InterpolationWrapper) = wrapper.parent
+Base.size(itp::InterpolationWrapper) = itp |> parent |> size
+Base.getindex(itp::InterpolationWrapper, i...) = parent(itp)(i...)
+
+Interpolations.coefficients(etp::AbstractExtrapolation) = etp |> parent |> Interpolations.coefficients
+
+function Base.checkbounds(etp::AbstractExtrapolation, x...)
+    Interpolations.inbounds_position(Interpolations.etpflag(etp), Interpolations.bounds(parent(etp)), x, etp, x)
+    return
 end
 
-DimensionalData.set(dim::DimensionalData.Dimension, itp::AbstractInterpolation) = Interpolatable(dim, itp)
-DimensionalData.name(itp::Interpolatable) = itp |> parent |> name
-
-interpolated(itp::Interpolatable) = itp.itp
-interpolated(dim::Dimension) = dim
-
-struct InterpolationLookup{T, N, D} <: Unaligned{T, N}
-    itp::AbstractInterpolation
-    dim::D
-end
-DimensionalData.transformfunc(lookup::InterpolationLookup) = coords -> Interpolations.weightedindexes(
-    (Interpolations.value_weights,),
-    Interpolations.itpinfo(itp)...,
-    coords
-)
-DimensionalData.transformdim(lookup::InterpolationLookup) = lookup.dim
-DimensionalData.transformdim(::Type{InterpolationLookup{<: Any, <: Any, D}}) where D = D
-
-struct Interpolated{T} <: LookupArrays.ArraySelector{T}
-    val::T
-end
-
-DimensionalData.dims2indices(dims, indices::NonEmpty{Interpolated}) =
-    dims2indices(dims .|> metadata .|> InterpolationLookup, indices)
-
-LookupArrays.select_unalligned_indices(lookups::Tuple{Vararg{InterpolationLookup}}, sel::NonEmpty{Interpolated}) =
-    transformfunc(lookups[1])(map(val, sel))
+Base.checkbounds(::Type{𝔽₂}, etp::AbstractExtrapolation, x::Union{Number, Vector}...) =
+    try
+        checkbounds(etp, x...)
+    catch e
+        e isa BoundsError || rethrow()
+        return false
+    else
+        return true
+    end

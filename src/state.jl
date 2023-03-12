@@ -1,13 +1,6 @@
-struct InterpolationWrapper{T, N, IT <: AbstractInterpolation{T, N}} <: AbstractArray{T, N}
-    parent::IT
-end
-Base.parent(itp::InterpolationWrapper) = wrapper.parent
-Base.size(itp::InterpolationWrapper) = itp |> parent |> size
-Base.getindex(itp::InterpolationWrapper, i...) = parent(itp)(i...)
-
 const Reshaped{N} = Base.ReshapedArray{ℂ, N, SubArray{ℂ, 1, Vector{ℂ}, Tuple{Base.Slice{Base.OneTo{ℤ}}}, true}, Tuple{}}
-const Interpolation{N} = Interpolations.BSplineInterpolation{ℂ, N, OffsetArray{ℂ, N, Reshaped{N}}}
-const Extrapolation{N} = Interpolateions.FilledExtrapolation{ℂ, N}
+const Interpolation{N, Spec} = Interpolations.BSplineInterpolation{ℂ, N, OffsetArray{ℂ, N, Reshaped{N}}, Spec, NTuple{N, Base.OneTo{ℤ}}}
+const Extrapolation{N, Spec} = Interpolations.FilledExtrapolation{ℂ, N, Interpolation{N, Spec}}
 struct State{N, D} <: AbstractDimArray{ℂ, N, D, Grandparent{N}}
     data::DimArray{ℂ, N, D, Reshaped{N}}
     interpolated::DimArray{ℂ, N, D, Interpolation{ℂ, N, Reshaped{N}}}
