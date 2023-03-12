@@ -1,12 +1,12 @@
 using Interpolations
 
-struct InterpolationWrapper{T, N, IT <: AbstractInterpolation{T, N}} <: AbstractArray{T, N}
+struct Interpolation{T, N, IT <: AbstractInterpolation{T, N}} <: AbstractArray{T, N}
     parent::IT
 end
-Base.parent(itp::InterpolationWrapper) = wrapper.parent
-Base.size(itp::InterpolationWrapper) = itp |> parent |> size
-Base.getindex(itp::InterpolationWrapper, i...) = parent(itp)(i...)
+Base.parent(itp::Interpolation) = wrapper.parent
+Base.size(itp::Interpolation) = itp |> parent |> size
 
+Interpolations.getindex(itp::Interpolation, i...) = parent(itp)(i...)
 Interpolations.coefficients(etp::AbstractExtrapolation) = etp |> parent |> Interpolations.coefficients
 
 function Base.checkbounds(etp::AbstractExtrapolation, x...)

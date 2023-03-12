@@ -19,3 +19,5 @@ DimensionalData.dim2key(::Type{<: Length{S}}) where S = S
 Base.show(io::IO, l::Length) = print(io, "$(name(l))[$(l.val)]")
 
 Base.getindex(s::Dimension, indices) = Length{s}(indices)
+
+const Volume{N} = NTuple{N, Length}

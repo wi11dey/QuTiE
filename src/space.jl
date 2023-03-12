@@ -70,6 +70,7 @@ Space{T, name}() where {T <: Real, name} = Space{T, name}(-∞, ∞)
 
 DimensionalData.name(::Space{T, nme}) where {T, nme} = nme
 
+# v2: define names as new functions/types to keep information on the module in which dimensions were defined
 macro space(expr)
     power = 1
     args = []
