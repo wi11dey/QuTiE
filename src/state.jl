@@ -5,41 +5,50 @@ struct State{N, D <: Volume{N}, Orig <: AbstractArray{ℂ, N}, Interp <: Abstrac
     data::DimArray{        ℂ, N, D, Orig}
     interpolated::DimArray{ℂ, N, D, IT  }
 
-    @propagate_inbounds function State{N}(ax::D, data::Vector{ℂ}) where N
-        @boundscheck length(unique(ax)) == length(ax) || throw(DimensionMismatch("Duplicate dimensions."))
-        reshaped = reshape(@inbounds(view(data, :)), length.(ax))
-        spec = ifelse.(isfield.(ax),
-                       ifelse.(isperiodic.(ax),
-                               Periodic(OnCell()),
-                               Natural( OnCell()))
-                       .|> Quadratic
-                       .|> BSpline,
-                       NoInterp())
-        padded = Interpolations.padded_axes(ax, spec)
-        prefiltered = reshape(view(Vector{ℂ}(undef, padded .|> length |> prod), :), padded)
-        itp = Interpolations.BSplineInterpolation(ℂ, prefiltered, spec, ax)
-        new{N}(DimArray(reshaped, ax),
-               DimArray(extrapolate(extrapolate(
-                   itp,
-                   map(ax) do l
-                       isperiodic(l) && Periodic()
-                       
-                   end
-                   ifelse.(isperiodic.(ax),
-                           Periodic(),
-                           ifelse())
-               ), zero(ℂ)), set.(ax, DimensionalData.NoLookup())),
-               extrapolate(interpolated,
-                           ifelse.(isperiodic.(axes(ψ)),
-                           Periodic(),
-                           zero(ℂ))))
+    @propagate_inbounds function State{N, D}(dims::D, data::Vector{ℂ}) where {N, D}
+        @boundscheck length(unique(dims)) == length(dims) || throw(DimensionMismatch("Duplicate dimensions"))
+        sz = length.(dims)
+        @boundscheck length(data) == sz || throw(DimensionMismatch("Mismatch between product of dimensions and length of data"))
+
+        @inline reshape_view(v::AbstractVector, dims::Dims) = Base.ReshapedArray(v, dims, ())
+        @inline reshape_view(v::AbstractVector, dims::Dims) = Base.ReshapedArray(v, dims, ())
+
+        reshaped = reshape_view(data, sz)
+        spaces = Space.(dims)
+        spec = map(spaces) do space
+            isfield(space) || return NoInterp()
+            BSpline(Quadratic(ifelse(isperiodic(space), Periodic, Natural)(OnCell())))
+        end
+        padded = Interpolations.padded_axes(dims, spec)
+        itp = extrapolate(extrapolate(
+            Interpolations.BSplineInterpolation(
+                ℂ,
+                OffsetArray(reshape_view(Vector{ℂ}(
+                    undef,
+                    padded
+                    .|> length
+                    |> prod
+                ), sz), padded),
+                spec,
+                dims
+            ),
+            ifelse.(isperiodic.(spaces), Periodic(), Throw())
+        ), zero(ℂ))
+        new{N, D, typeof(reshaped), typeof(itp)}(
+            DimArray(reshaped, dims),
+            DimArray(itp, set.(dims, DimensionalData.NoLookup()))
+        )
     end
-    State{N}(ψ::State{N}) where N = new{N}(ψ.ax, copy(ψ.data), ψ.inv)
+    State{N}(ψ::State{N}) where N = new{N}(ψ.data, ψ.interpolated)
 end
-State{N}(ax::Volume{N}) where N = @inbounds State{N}(ax, Vector{ℂ}(undef, ax .|> length |> prod))
+State{N}(ax::Volume{N}) where N = State{N}(ax, Vector{ℂ}(undef, ax .|> length |> prod))
 Base.copy(ψ::State) = State(ψ)
 Base.axes(ψ::State) = ψ.ax
-Base.vec( ψ::State) = @inbounds @view ψ.data[:]
+function Base.vec( ψ::State)
+    ψ.data    # DimArray
+    |> parent # ReshapedArray
+    |> parent # Vector
+end
 Base.size(ψ::State) = length.(axes(ψ))
 Base.length(ψ::State) = prod(size(ψ))
 Base.IteratorSize(::Type{State{N}}) where N = Base.HasShape{N}()
