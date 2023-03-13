@@ -1,10 +1,7 @@
 using ThreadsX
 
 Base.getindex(L::AddedOperator, i...) = ThreadsX.sum(op -> op[i...], getops(L))
-
-function Base.:*(L::AddedOperator, u)
-    ThreadsX.sum(op -> iszero(op) ? zero(u) : op * u, getops(ops))
-end
+(*)(          L::AddedOperator, u   ) = ThreadsX.sum(op -> iszero(op) ? zero(u) : op * u, getops(ops))
 
 function LinearAlgebra.mul!(v, L::AddedOperator, u)
     mul!(v, L |> getops |> first, u)
