@@ -40,11 +40,21 @@ end
 
 Base.parent(ψ::State) = ψ.data
 
-for method in :(dims, refdims, data, name, metadata, layerdims)
-    @eval DimensionalData.$method(ψ::State) = ψ |> parent |> $method
+for method in :(dims, refdims, data, name, metadata, layerdims).args
+    @eval DimensionalData.$method(ψ::State) = ψ |> parent |> DimensionalData.$method
 end
 
-struct Interpolated <: DimensionalData.ArraySelector
+struct Interpolated{T, S <: Selector{T}} <: DimensionalData.Selector{T}
+    parent::S
+end
+Base.parent(sel::Interpolated) = sel.parent
+
+for method in :(val, first, last, atol, rtol).args
+    @eval DimensionalData.$method(sel::Interpolated) = sel |> parent |> DimensionalData.$method
+end
+for method in :(selectindices, hasselection).args
+    @eval DimensionalData.$method(l::LookupArray, sel::Interpolated; kw...) =
+        DimensionalData.$method(l, parent(sel); kw...)
 end
 
 @generated Base.getindex(ψ::State, indices...) =
