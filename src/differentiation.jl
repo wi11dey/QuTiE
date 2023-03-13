@@ -1,27 +1,24 @@
 # v2: save weights on update_coefficients!
-struct Differential{n, T <: AbstractFloat} <: Operator{T}
-    wrt::Dimension{T} # v6: ∂(::Time) for classical objects
-
-    Base.getindex(::Type{Differential{1}}, wrt::Dimension{T}) where T = new{1, T}(wrt)
-end
+struct Differential{S <: Tuple} <: Operator{ℂ} end
 const ∂ = Differential
 export ∂
-(^)(::Type{∂{n}}, m::ℤ) where n = ∂{n*m}
-(^)(::Type{∂   }, m::ℤ) = ∂{1}^m
 for i ∈ 2:10
     partial = Symbol("∂"*sup(i))
-    @eval const $partial = ∂{$i}
+    @eval const $partial = ∂{NTuple{$i, Any}}
     @eval export $partial
 end
-Base.getindex(::Type{∂}, args...) = ∂{1}[args...]
-Base.getindex(::Type{∂{n}}, args...) where n = ∂{1}[args...]^n
-getops(d::∂) = (d.wrt,)
+(^)(::Type{∂{NTuple{n, S  }}}, m::ℤ) where {n, S} = ∂{NTuple{n*m, S  }}
+(^)(::Type{∂{NTuple{n, Any}}}, m::ℤ) where  n     = ∂{NTuple{n*m, Any}}
+(^)(::Type{∂                }, m::ℤ)              = ∂{NTuple{1,   Any}}^m
+Base.getindex(::Type{∂{NTuple{n, Any}}}, space::Space) = ∂{NTuple{n, space}}
+Base.getindex(::Type{∂}, spaces::Space...) = ∂{Tuple{spaces...}}
+getops(d::∂{S}) where S = S.parameters
 islinear(::Differential) = true
 
-Base.size(d::∂) = size(d.wrt)
-SymbolicUtils.operation(::∂{1}) = ∂{1}
-Base.show(io::IO, ::Type{<: ∂{1}}) = print(io, "∂")
-function SymbolicUtils.show_call(io::IO, d::Type{<: ∂{1}}, args::AbstractVector)
+Base.size(d::∂) = (ℶ₂, ℶ₂)
+SymbolicUtils.operation(::∂) = ∂
+Base.show(io::IO, ::Type{<: ∂}) = print(io, "∂")
+function SymbolicUtils.show_call(io::IO, d::Type{<: ∂}, args::AbstractVector)
     print(io, d, "[")
     join(io, args, ", ")
     print(io, "]")
