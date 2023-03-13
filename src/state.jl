@@ -44,13 +44,16 @@ for method in :(dims, refdims, data, name, metadata, layerdims).args
     @eval DimensionalData.$method(ψ::State) = ψ |> parent |> DimensionalData.$method
 end
 
+@inline Interpolations.interpolate(ψ::State) =
+    ψ.interpolated |> # DimArray
+    parent         |> # Interpolation
+    parent            # AbstractExtrapolation
 function Interpolations.prefilter!(ψ::State)
-    itp = ψ.interpolated |> # DimArray
-        parent           |> # Interpolation
-        parent           |> # AbstractExtrapolation
-        parent           |> # AbstractExtrapolation
-        parent           |> # ScaledInterpolation
-        parent              # BSplineInterpolation
+    itp = ψ         |> # State
+        interpolate |> # AbstractExtrapolation
+        parent      |> # AbstractExtrapolation
+        parent      |> # ScaledInterpolation
+        parent         # BSplineInterpolation
     orig = ψ   |> # State
         parent |> # DimArray
         parent    # AbstractArray
