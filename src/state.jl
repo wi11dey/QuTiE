@@ -1,5 +1,5 @@
 struct State{N, D <: Volume{N}, Orig <: AbstractArray{ℂ, N}, Interp <: AbstractInterpolation{ℂ, N}} <: AbstractDimArray{ℂ, N, D, Orig}
-    data::DimArray{        ℂ, N, D, Orig}
+    original::DimArray{        ℂ, N, D, Orig}
     interpolated::DimArray{ℂ, N, D, Interpolation{ℂ, N, Interp}}
 
     function DimensionalData.rebuild(::Union{State, Vacuum}, data::AbstractArray, dims::Volume, refdims::Tuple, name, metdata)
@@ -13,20 +13,20 @@ struct State{N, D <: Volume{N}, Orig <: AbstractArray{ℂ, N}, Interp <: Abstrac
             BSpline(Quadratic(ifelse(isperiodic(space), Periodic, Natural)(OnCell())))
         end
         padded = Interpolations.padded_axes(dims, spec)
-        itp = extrapolate(extrapolate(
-            scale(Interpolations.BSplineInterpolation(
-                ℂ,
-                OffsetArray(Base.ReshapedArray(Vector{ℂ}(
-                    undef,
-                    padded
-                    .|> length
-                    |> prod
-                ), sz, ()), padded),
-                spec,
-                dims
-            ), dims...),
-            ifelse.(isperiodic.(spaces), Periodic(), Throw())
-        ), zero(ℂ)) |> Interpolation
+        itp = scale(Interpolations.BSplineInterpolation(
+            ℂ,
+            OffsetArray(Base.ReshapedArray(Vector{ℂ}(
+                undef,
+                padded     .|>
+                    length  |>
+                    prod
+            ), sz, ()), padded),
+            spec,
+            dims
+        ), dims...)                                                                   |>
+            Base.Fix2(extrapolate, ifelse.(isperiodic.(spaces), Periodic(), Throw())) |>
+            Base.Fix2(extrapolate, zero(ℂ))                                           |>
+            Interpolation
         new{N, D, typeof(reshaped), typeof(itp)}(
             DimArray(reshaped, dims; refdims=refdims, name=name, metadata=metadata),
             DimArray(itp, set.(dims, DimensionalData.NoLookup()))
@@ -38,10 +38,34 @@ State{N}(dims::Volume{N}) where N = @inbounds State{N}(dims, Vector{ℂ}(undef, 
 function State{N}(ψ₀::Operator) where N
 end
 
-Base.parent(ψ::State) = ψ.data
+Base.parent(ψ::State) = ψ.original
 
 for method in :(dims, refdims, data, name, metadata, layerdims).args
     @eval DimensionalData.$method(ψ::State) = ψ |> parent |> DimensionalData.$method
+end
+
+function Interpolations.prefilter!(ψ::State)
+    itp = ψ.interpolated |> # DimArray
+        parent           |> # Interpolation
+        parent           |> # AbstractExtrapolation
+        parent           |> # AbstractExtrapolation
+        parent           |> # ScaledInterpolation
+        parent              # BSplineInterpolation
+    orig = ψ   |> # State
+        parent |> # DimArray
+        parent    # AbstractArray
+    if axes(orig) == axes(itp.coefs)
+        copyto!(itp.coefs, orig)
+    else
+        fill!(itp.coefs, zero(ℂ))
+        copyto!(
+            itp.coefs,
+            orig |> axes |> CartesianIndices,
+            orig,
+            orig |> axes |> CartesianIndices
+        )
+    end
+    Interpolations.prefilter!(real(ℂ), itp.coefs, Interpolations.itptype(itp))
 end
 
 struct Interpolated{T, S <: Selector{T}} <: DimensionalData.Selector{T}
