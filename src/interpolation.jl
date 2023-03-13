@@ -5,8 +5,8 @@ struct Interpolation{T, N, IT <: AbstractInterpolation{T, N}} <: AbstractArray{T
 end
 Base.parent(itp::Interpolation) = wrapper.parent
 Base.size(itp::Interpolation) = itp |> parent |> size
+Base.getindex(itp::Interpolation, i...) = parent(itp)(i...)
 
-Interpolations.getindex(itp::Interpolation, i...) = parent(itp)(i...)
 Interpolations.coefficients(etp::AbstractExtrapolation) = etp |> parent |> Interpolations.coefficients
 
 function Base.checkbounds(etp::AbstractExtrapolation, x...)

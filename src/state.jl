@@ -68,16 +68,18 @@ function Interpolations.prefilter!(ψ::State)
     Interpolations.prefilter!(real(ℂ), itp.coefs, Interpolations.itptype(itp))
 end
 
-struct Interpolated{T, S <: Selector{T}} <: DimensionalData.Selector{T}
+
+struct Interpolated{T, S <: DimensionalData.Selector{T}} <: DimensionalData.Selector{T}
     parent::S
 end
 Base.parent(sel::Interpolated) = sel.parent
 
+import DimensionalData.LookupArrays
 for method in :(val, first, last, atol, rtol).args
-    @eval DimensionalData.$method(sel::Interpolated) = sel |> parent |> DimensionalData.$method
+    @eval LookupArrays.$method(sel::Interpolated) = sel |> parent |> LookupArrays.$method
 end
 for method in :(selectindices, hasselection).args
-    @eval DimensionalData.$method(l::LookupArray, sel::Interpolated; kw...) =
+    @eval DimensionalData.$method(l::DimensionalData.LookupArray, sel::Interpolated; kw...) =
         DimensionalData.$method(l, parent(sel); kw...)
 end
 

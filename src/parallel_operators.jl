@@ -1,6 +1,6 @@
 using ThreadsX
 
-getindex(L::AddedOperator, i...) = ThreadsX.sum(op -> op[i...], getops(L))
+Base.getindex(L::AddedOperator, i...) = ThreadsX.sum(op -> op[i...], getops(L))
 
 function Base.:*(L::AddedOperator, u)
     ThreadsX.sum(op -> iszero(op) ? zero(u) : op * u, getops(ops))
