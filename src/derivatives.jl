@@ -1,8 +1,7 @@
-# v2: save weights on update_coefficients!
-struct Differential{S <: Tuple, Weights} <: Operator{ℂ}
+struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
     weights::Weights
 
-    cache_operator(d::Differential{Tuple{s}}, ψ::State) where s =
+    cache_operator(d::Derivative{Tuple{s}}, ψ::State) where s =
         new{Tuple{s}}(Interpolations.weighted_indexes.(
             Ref((
                 Interpolations.value_weights,
@@ -12,9 +11,9 @@ struct Differential{S <: Tuple, Weights} <: Operator{ℂ}
             Interpolations.itpinfo(interpolate(ψ))...,
             DimIndices(ψ)
         ) .|>
-            Base.Fix2(Base.getindex, dimnum(ψ, s)))
+            Base.Fix2(getindex, dimnum(ψ, s)))
 
-    cache_operator(d::Differential{Tuple{s, t}}, ψ::State) where {s, t} =
+    cache_operator(d::Derivative{Tuple{s, t}}, ψ::State) where {s, t} =
         new{Tuple{s, t}}(Interpolations.weighted_indexes.(
             Ref((
                 Interpolations.value_weights,
@@ -25,11 +24,11 @@ struct Differential{S <: Tuple, Weights} <: Operator{ℂ}
             DimIndices(ψ)
         )                            .|>
             Interpolations.symmatrix .|>
-            m -> m[dimnum(ψ, s), dimnum(ψ, t)])
+            hessian -> hessian[dimnum(ψ, s), dimnum(ψ, t)])
 
-    Differential{S}() where {S <: NTuple{2, Any}} = new{S}(nothing)
+    Derivative{S}() where {S <: NTuple{2, Any}} = new{S}(nothing)
 end
-const ∂ = Differential
+const ∂ = Derivative
 export ∂
 for i ∈ 2:10
     partial = Symbol("∂"*sup(i))
@@ -53,44 +52,27 @@ Base.getindex(::Type{∂}, spaces::Space...) = ∂{Tuple{spaces...}}()
 )
 
 getops(d::∂{S}) where S = S.parameters
-islinear(  ::Differential) = true
-isconstant(::Differential) = true
+islinear(  ::∂) = true
+isconstant(::∂) = true
 
 Base.size(d::∂) = (ℶ₂, ℶ₂)
 
-# v2: use sup()
 SymbolicUtils.operation(::∂) = ∂
-Base.show(io::IO, ::Type{<: ∂}) = print(io, "∂")
+# Base.show(io::IO, ::Type{<: ∂                   })         = print(io, "∂")
+# Base.show(io::IO, ::Type{<: ∂{NTuple{n, <: Any}}}) where n = print(io, "∂"*sup(n))
 function SymbolicUtils.show_call(io::IO, d::Type{<: ∂}, args::AbstractVector)
-    print(io, d, "[")
+    print(io, "∂[")
     join(io, args, ", ")
     print(io, "]")
 end
-
-# v2: optimize for whole array access
-struct Derivative{n, N, T} <: AbstractArray{ℂ, N}
-    wrt::ℤ
-    ψ::State{N}
-    itp::AbstractInterpolation
+function SymbolicUtils.show_call(io::IO, d::Type{<: ∂{NTuple{n, <: Any}}}, args::AbstractVector) where n
+    print(io, "∂", sup(n), "[")
+    join(io, args[1], ", ")
+    print(io, "]")
 end
-(d::∂{n, T})(ψ::State{N}) where {n, N, T} = Derivative{n, N, T}(ψ.inv[d.wrt], ψ, interpolate(D.ψ))
-Base.axes(D::Derivative, args...) = axes(D.ψ, args...)
-function Base.to_indices(D::Derivative{1}, ax::Volume, indices)
-    indices = to_indices(D.ψ, indices)
-    map(Iterators.product(indices)) do coords
-        Interpolations.weightedindexes(
-            (
-                Interpolations.value_weights,
-                Interpolations.gradient_weights
-            ),
-            Interpolations.itpinfo(D.itp)...,
-            coords
-        )[D.wrt]
-    end |> tuple
-end
-@propagate_inbounds Base.getindex(D::Derivative{1, N}, index::NTuple{N, Interpolations.WeightedIndex}) where N =
-    Interpolations.InterpGetindex(D.itp)[index...]
-Base.getindex(::ComposedOperator{NTuple{2, Derivative{1}}})
 
-@inline (*)(                          d::∂, ψ::State) = mul!(similar(dψ), d, ψ)
-@inline LinearAlgebra.mul!(dψ::State, d::∂, ψ::State) = dψ .= d(ψ)
+(*)(                          d::∂,                             ψ::State) = mul!(similar(dψ),                d , ψ)
+LinearAlgebra.mul!(dψ::State, d::∂{<: Tuple, Nothing         }, ψ::State) = mul!(        dψ , cache_operator(d), ψ)
+LinearAlgebra.mul!(dψ::State, d::∂{<: Tuple, <: AbstractArray}, ψ::State) =
+    dψ .= d.weights .|>
+    wis -> Interpolations.InterpGetindex(interpolate(ψ))[wis...]

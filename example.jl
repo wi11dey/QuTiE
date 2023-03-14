@@ -1,4 +1,3 @@
-@time t
 @space x := ℝ(-∞, ∞; periodic, classical)
 
 # Harmonic potential:
