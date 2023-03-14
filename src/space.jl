@@ -123,3 +123,4 @@ Base.extrema(space::Space) = first(space), last(space)
 isbounded(space::Space) = all(isfinite, extrema(space))
 isclassical(space::Space) = space.classical
 isperiodic(space::Space) = space.periodic
+isconstant(::Space) = true

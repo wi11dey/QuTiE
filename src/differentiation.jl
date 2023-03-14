@@ -1,5 +1,34 @@
 # v2: save weights on update_coefficients!
-struct Differential{S <: Tuple} <: Operator{ℂ} end
+struct Differential{S <: Tuple, Weights} <: Operator{ℂ}
+    weights::Weights
+
+    cache_operator(d::Differential{Tuple{s}}, ψ::State) where s =
+        new{Tuple{s}}(Interpolations.weighted_indexes.(
+            Ref((
+                Interpolations.value_weights,
+                Interpolations.gradient_weights,
+                Interpolations.hessian_weights
+            )),
+            Interpolations.itpinfo(interpolate(ψ))...,
+            DimIndices(ψ)
+        ) .|>
+            Base.Fix2(Base.getindex, dimnum(ψ, s)))
+
+    cache_operator(d::Differential{Tuple{s, t}}, ψ::State) where {s, t} =
+        new{Tuple{s, t}}(Interpolations.weighted_indexes.(
+            Ref((
+                Interpolations.value_weights,
+                Interpolations.gradient_weights,
+                Interpolations.hessian_weights
+            )),
+            Interpolations.itpinfo(interpolate(ψ))...,
+            DimIndices(ψ)
+        )                            .|>
+            Interpolations.symmatrix .|>
+            m -> m[dimnum(ψ, s), dimnum(ψ, t)])
+
+    Differential{S}() where {S <: NTuple{2, Any}} = new{S}(nothing)
+end
 const ∂ = Differential
 export ∂
 for i ∈ 2:10
@@ -10,12 +39,26 @@ end
 (^)(::Type{∂{NTuple{n, S  }}}, m::ℤ) where {n, S} = ∂{NTuple{n*m, S  }}
 (^)(::Type{∂{NTuple{n, Any}}}, m::ℤ) where  n     = ∂{NTuple{n*m, Any}}
 (^)(::Type{∂                }, m::ℤ)              = ∂{NTuple{1,   Any}}^m
-Base.getindex(::Type{∂{NTuple{n, Any}}}, space::Space) = ∂{NTuple{n, space}}
-Base.getindex(::Type{∂}, spaces::Space...) = ∂{Tuple{spaces...}}
+
+Base.getindex(::Type{∂{NTuple{n, Any}}}, space::Space) = ∂{NTuple{n, space}}()
+Base.getindex(::Type{∂}, spaces::Space...) = ∂{Tuple{spaces...}}()
+
+"""Optimized for Hessians from second-order interpolation and finite differencing."""
+∂{S}() where S = prod(
+    s -> ∂{Tuple{s...}}(),
+    S.parameters                          |>
+        Base.Fix2(Iterators.partition, 2) |>
+        collect                           |>
+        reverse!
+)
+
 getops(d::∂{S}) where S = S.parameters
-islinear(::Differential) = true
+islinear(  ::Differential) = true
+isconstant(::Differential) = true
 
 Base.size(d::∂) = (ℶ₂, ℶ₂)
+
+# v2: use sup()
 SymbolicUtils.operation(::∂) = ∂
 Base.show(io::IO, ::Type{<: ∂}) = print(io, "∂")
 function SymbolicUtils.show_call(io::IO, d::Type{<: ∂}, args::AbstractVector)
