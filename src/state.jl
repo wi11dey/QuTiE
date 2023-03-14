@@ -7,7 +7,7 @@ struct State{N, D <: Volume{N}, Orig <: AbstractArray{ℂ, N}, Interp <: Abstrac
         sz = length.(dims)
         @boundscheck length(data) == sz || throw(DimensionMismatch("Mismatch between product of dimensions and length of data"))
         reshaped = Base.ReshapedArray(data, sz, ())
-        spaces = Space.(dims)
+        spaces = Dimension.(dims)
         spec = map(spaces) do space
             isfield(space) || return NoInterp()
             BSpline(Quadratic(ifelse(isperiodic(space), Periodic, Natural)(OnCell())))
