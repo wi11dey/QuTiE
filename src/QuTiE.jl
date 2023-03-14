@@ -22,7 +22,7 @@ include("measure.jl")
 include("interpolation.jl")
 include("vacuum.jl")
 include("state.jl")
-# include("derivatives.jl")
+include("derivatives.jl")
 include("lie_groups.jl")
 include("classical.jl")
 

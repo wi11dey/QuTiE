@@ -1,20 +1,21 @@
 struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
     weights::Weights
 
-    cache_operator(d::Derivative{Tuple{s}}, ψ::State) where s =
-        new{Tuple{s}}(Interpolations.weighted_indexes.(
+    function cache_operator(d::Derivative{Tuple{s}}, ψ::State) where s
+        weights = Interpolations.weighted_indexes.(
             Ref((
                 Interpolations.value_weights,
-                Interpolations.gradient_weights,
-                Interpolations.hessian_weights
+                Interpolations.gradient_weights
             )),
             Interpolations.itpinfo(interpolate(ψ))...,
             DimIndices(ψ)
         ) .|>
-            Base.Fix2(getindex, dimnum(ψ, s)))
+            Base.Fix2(getindex, dimnum(ψ, s))
+        new{Tuple{s}, typeof(weights)}(weights)
+    end
 
-    cache_operator(d::Derivative{Tuple{s, t}}, ψ::State) where {s, t} =
-        new{Tuple{s, t}}(Interpolations.weighted_indexes.(
+    function cache_operator(d::Derivative{Tuple{s, t}}, ψ::State) where {s, t}
+        weights = Interpolations.weighted_indexes.(
             Ref((
                 Interpolations.value_weights,
                 Interpolations.gradient_weights,
@@ -24,9 +25,11 @@ struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
             DimIndices(ψ)
         )                            .|>
             Interpolations.symmatrix .|>
-            hessian -> hessian[dimnum(ψ, s), dimnum(ψ, t)])
+            hessian -> hessian[dimnum(ψ, s), dimnum(ψ, t)]
+        new{Tuple{s, t}, typeof(weights)}(weights)
+    end
 
-    Derivative{S}() where {S <: NTuple{2, Any}} = new{S}(nothing)
+    Derivative{S}() where {S <: NTuple{2, Any}} = new{S, Nothing}(nothing)
 end
 const ∂ = Derivative
 export ∂
@@ -39,8 +42,8 @@ end
 (^)(::Type{∂{NTuple{n, Any}}}, m::ℤ) where  n     = ∂{NTuple{n*m, Any}}
 (^)(::Type{∂                }, m::ℤ)              = ∂{NTuple{1,   Any}}^m
 
-Base.getindex(::Type{∂{NTuple{n, Any}}}, space::Space) = ∂{NTuple{n, space}}()
-Base.getindex(::Type{∂}, spaces::Space...) = ∂{Tuple{spaces...}}()
+Base.getindex(::Type{∂{NTuple{n, Any}}}, space::Space    ) where n = ∂{NTuple{n, space}}()
+Base.getindex(::Type{∂                }, spaces::Space...)         = ∂{Tuple{spaces...}}()
 
 """Optimized for Hessians from second-order interpolation and finite differencing."""
 ∂{S}() where S = prod(
