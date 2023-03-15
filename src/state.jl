@@ -4,7 +4,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
     original::DimArray{ℂ, N, D, R, Orig, Na, Me}
     interpolated::Interp
 
-    function DimensionalData.rebuild(::Union{State, Vacuum}, data::AbstractArray, dims::Volume{N}, refdims::Tuple, name, metdata) where N
+    function DimensionalData.rebuild(::Union{State, Vacuum}, data::AbstractArray{ℂ}, dims::Volume{N}, refdims::Tuple, name, metdata) where N
         @boundscheck length(unique(dims)) == length(dims) || throw(DimensionMismatch("Duplicate dimensions"))
         sz = length.(dims)
         @boundscheck length(data) == prod(sz) || throw(DimensionMismatch("Mismatch between product of dimensions and length of data"))
@@ -81,7 +81,7 @@ function Interpolations.prefilter!(ψ::State)
             orig |> axes |> CartesianIndices
         )
     end
-    Interpolations.prefilter!(real(ℂ), itp.coefs, Interpolations.itptype(itp))
+    Interpolations.prefilter!(real(ℂ), itp.coefs, Interpolations.itpflag(itp))
 end
 
 

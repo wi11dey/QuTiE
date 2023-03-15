@@ -51,19 +51,19 @@ struct Space{T, name} <: Dimension{T}
     end
 end
 Space{T, name}(space::Space;
-               periodic =nothing,
-               classical=nothing,
-               a        =nothing,
-               ε        =nothing,
-               canary   =nothing) where {T, name} = Space{T, name}(
+               periodic =space.periodic,
+               classical=space.classical,
+               a        =space.a,
+               ε        =space.ε,
+               canary   =space.canary) where {T, name} = Space{T, name}(
                    space.lower,
                    space.upper;
-                   periodic =something(periodic,  space.periodic),
-                   classical=something(classical, space.classical),
+                   periodic,
+                   classical,
 
-                   a        =something(a,         space.a),
-                   ε        =something(ε,         space.ε),
-                   canary   =something(canary,    space.canary)
+                   a,
+                   ε,
+                   canary
                )
 Space{T}(args...; kwargs...) where T = Space{T, gensym()}(args...; kwargs...)
 Space(upper) = Space(zero(upper), upper)
