@@ -1,8 +1,8 @@
 using OffsetArrays
 
-struct State{N, D, Orig <: AbstractArray{ℂ, N}, Interp <: AbstractInterpolation{ℂ, N}} <: AbstractDimArray{ℂ, N, D, Orig}
-    original::DimArray{    ℂ, N}
-    interpolated::DimArray{ℂ, N}
+struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, Interp <: AbstractDimArray{ℂ, N}} <: AbstractDimArray{ℂ, N, D, Orig}
+    original::DimArray{ℂ, N, D, R, Orig, Na, Me}
+    interpolated::Interp
 
     function DimensionalData.rebuild(::Union{State, Vacuum}, data::AbstractArray, dims::Volume{N}, refdims::Tuple, name, metdata) where N
         @boundscheck length(unique(dims)) == length(dims) || throw(DimensionMismatch("Duplicate dimensions"))
@@ -16,13 +16,12 @@ struct State{N, D, Orig <: AbstractArray{ℂ, N}, Interp <: AbstractInterpolatio
         end
         ax = Base.OneTo.(sz)
         padded = Interpolations.padded_axes(ax, spec)
-        padded_sz = length.(padded)
         itp = scale(Interpolations.BSplineInterpolation(
             ℝ,
             OffsetArray(Base.ReshapedArray(Vector{ℂ}(
                 undef,
-                prod(padded_sz)
-            ), padded_sz, ()), padded),
+                prod(length.(padded))
+            ), length.(padded), ()), padded),
             spec,
             ax
         ), DimensionalData.val.(dims)...) |>
@@ -34,9 +33,10 @@ struct State{N, D, Orig <: AbstractArray{ℂ, N}, Interp <: AbstractInterpolatio
                 Base.Fix2(extrapolate, zero(ℂ)) |>
                 Interpolation
         original = DimArray(reshaped, dims; refdims=refdims, name=name, metadata=metadata)
-        new{N, typeof(DimensionalData.dims(original)), typeof(reshaped), typeof(parent(itp))}(
+        interpolated = DimArray(itp, set.(dims, Ref(DimensionalData.NoLookup())))
+        new{N, typeof.(Base.getfield.(Ref(original), (:dims, :refdims, :data, :name, :metadata)))..., typeof(interpolated)}(
             original,
-            DimArray(itp, set.(dims, Ref(DimensionalData.NoLookup())))
+            interpolated
         )
     end
 end

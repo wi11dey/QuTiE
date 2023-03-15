@@ -69,7 +69,6 @@ Space{T}(args...; kwargs...) where T = Space{T, gensym()}(args...; kwargs...)
 Space(upper) = Space(zero(upper), upper)
 Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords...)
 Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); a=step(range), keywords...)
-Space{T, name}() where {T <: Real, name} = Space{T, name}(-∞, ∞)
 
 DimensionalData.name(::Space{T, nme}) where {T, nme} = nme
 
