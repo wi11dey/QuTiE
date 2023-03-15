@@ -8,6 +8,7 @@ using DimensionalData
 # using ModelingToolkit, SymbolicUtils # v4/5
 # using MarchingCubes, ConstructiveGeometry, Compose # v6/7
 
+include("define.jl")
 include("algebra.jl")
 include("scripts.jl")
 include("strong_limit_cardinals.jl")

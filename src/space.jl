@@ -1,8 +1,6 @@
 using Infinity
-using MacroTools
-using StaticArrays
 
-export @space, ∞, isfield, isbounded, isperiodic, isclassical
+export Space, ∞, isfield, isbounded, isperiodic, isclassical
 
 struct Space{T, name} <: Dimension{T}
     lower::InfExtendedReal{T}
@@ -52,17 +50,22 @@ struct Space{T, name} <: Dimension{T}
         )
     end
 end
-Space(space::Space) = Space(
-    space.lower,
-    space.upper;
-    periodic =space.periodic,
-    classical=space.classical,
+Space{T, name}(space::Space;
+               periodic =nothing,
+               classical=nothing,
+               a        =nothing,
+               ε        =nothing,
+               canary   =nothing) where {T, name} = Space{T, name}(
+                   space.lower,
+                   space.upper;
+                   periodic =something(periodic,  space.periodic),
+                   classical=something(classical, space.classical),
 
-    a        =space.a,
-    ε        =space.ε,
-    canary   =space.canary
-)
-Base.copy(space::Space) = Space(space)
+                   a        =something(a,         space.a),
+                   ε        =something(ε,         space.ε),
+                   canary   =something(canary,    space.canary)
+               )
+Space{T}(args...; kwargs...) where T = Space{T, gensym()}(args...; kwargs...)
 Space(upper) = Space(zero(upper), upper)
 Space(lower, step, upper; keywords...) = Space(lower, upper; step=step, keywords...)
 Space(range::AbstractRange{T}; keywords...) where T = Space{T}(first(range), last(range); a=step(range), keywords...)
@@ -70,41 +73,17 @@ Space{T, name}() where {T <: Real, name} = Space{T, name}(-∞, ∞)
 
 DimensionalData.name(::Space{T, nme}) where {T, nme} = nme
 
-# v2: define names as new functions/types to keep information on the module in which dimensions were defined
-macro space(expr)
-    power = 1
-    args = []
-    @capture(expr, name_Symbol := definition_)
-    @capture(definition, T_Symbol)                       && @goto parsed
-    @capture(definition, T_Symbol^power_Int)             && @goto parsed
-    @capture(definition, T_Symbol^(power_Int*(args__,))) && @goto parsed
-    @capture(definition, (T_Symbol^power_Int)(args__))   && @goto parsed
-    @capture(definition, T_Symbol(args__)^power_Int)     && @goto parsed
-    @capture(definition, T_Symbol(args__))               && @goto parsed
-    error("""Incorrect usage of @space. Use like:
-
-@space x := ℝ(0, ∞)
-@space 𝐫 := ℝ^3
-""")
-    @label parsed
-    power = something(power, 1)
-    power > 0 || error("Dimensions must be greater than zero")
-    map!(args, args) do arg
-        Meta.isexpr(arg, :parameters) || return arg
-        Expr(:parameters, (kw isa Symbol ? Expr(:kw, kw, true) : kw for kw in arg.args)...)
-    end
-    value = if power > 1
-        :($SVector($((:($Space{$T, $("$name"*sub(i) |> gensym |> Meta.quot)}($(args...))) for i ∈ 1:power)...)))
-    else
-        :($Space{$T, $(name |> gensym |> Meta.quot)}($(args...)))
-    end
-    esc(:(const $name = $value))
-end
+define(name::Symbol, space::Space{T}) where T = Space{T, name}(space)
 
 function Base.show(io::IO, space::Space)
-    print(io, match(r"^##(?<tag>.+)#\d+$", space |> name |> string)[:tag])
+    if space |> name |> Meta.isidentifier
+        print(io, space |> name)
+    end
     if !get(io, :compact, false)
-        print(io, " := $(getsymbol(eltype(space)))($(space.lower.val), $(space.upper.val); periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
+        if space |> name |> Meta.isidentifier
+            print(io, " := ")
+        end
+        print(io, "$(getsymbol(eltype(space)))($(space.lower.val), $(space.upper.val); periodic = $(space.periodic), classical = $(space.classical), a = $(space.a), ε = $(space.ε), canary = $(space.canary))")
     end
 end
 

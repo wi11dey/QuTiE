@@ -3,7 +3,6 @@ export depends
 abstract type Dimension{T <: Real} <: Operator{T} end
 SymbolicUtils.istree(::Dimension) = false
 getops(::Dimension) = ()
-"""Differs from `axes` in that it does not give concrete indices to any dimension."""
 filter_type(T::Type{<: Dimension}, op::Operator) = Iterators.filter(el -> el isa T, AbstractTrees.Leaves(op))
 # v4: symbolic time-independent solving
 depends(op::Operator, x::Dimension) = x ∈ filter_type(Dimension, op)

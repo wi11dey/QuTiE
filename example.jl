@@ -1,4 +1,4 @@
-@space x := ℝ(-∞, ∞; periodic, classical)
+@define x := Space{ℝ}(-∞, ∞; periodic, classical)
 
 # Harmonic potential:
 k = 1

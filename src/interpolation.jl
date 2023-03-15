@@ -3,7 +3,7 @@ using Interpolations
 struct Interpolation{T, N, IT <: AbstractInterpolation{T, N}} <: AbstractArray{T, N}
     parent::IT
 end
-Base.parent(itp::Interpolation) = wrapper.parent
+Base.parent(itp::Interpolation) = itp.parent
 Base.size(itp::Interpolation) = itp |> parent |> size
 Base.getindex(itp::Interpolation, i...) = parent(itp)(i...)
 
