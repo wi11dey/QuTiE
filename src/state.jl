@@ -102,8 +102,7 @@ State(dims) = State(undef, dims)
 
 Base.parent(ψ::State) = ψ.original
 
-Base.show(io::IO, mime::MIME"text/plain", ψ::State) = show(io, mime, parent(ψ))
-
+DimensionalData.show_after(io::IO, mime::MIME, ψ::State) = DimensionalData.show_after(io, mime, parent(ψ))
 for method in :(dims, refdims, data, name, metadata, layerdims).args
     @eval DimensionalData.$method(ψ::State) = ψ |> parent |> DimensionalData.$method
 end
