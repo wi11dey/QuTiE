@@ -4,7 +4,11 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
     original::DimArray{ℂ, N, D, R, Orig, Na, Me}
     interpolated::Interp
 
-    function DimensionalData.rebuild(::Union{State, Vacuum}, data::AbstractArray{ℂ}, dims::Volume{N}, refdims::Tuple, name, metdata) where N
+    function State{N}(dims::Volume{N},
+                      data::AbstractArray{ℂ};
+                      refdims=(),
+                      name=DimensionalData.NoName(),
+                      metdata=DimensionalData.NoMetadata()) where N
         @boundscheck length(unique(dims)) == length(dims) || throw(DimensionMismatch("Duplicate dimensions"))
         sz = length.(dims)
         @boundscheck length(data) == prod(sz) || throw(DimensionMismatch("Mismatch between product of dimensions and length of data"))
@@ -34,13 +38,37 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
                 Interpolation
         original = DimArray(reshaped, dims; refdims=refdims, name=name, metadata=metadata)
         interpolated = DimArray(itp, set.(dims, Ref(DimensionalData.NoLookup())))
-        new{N, typeof.(Base.getfield.(Ref(original), (:dims, :refdims, :data, :name, :metadata)))..., typeof(interpolated)}(
+        new{
+            N,
+            typeof.(Base.getfield.(Ref(original), (
+                :dims,
+                :refdims,
+                :data,
+                :name,
+                :metadata
+            )))...,
+            typeof(interpolated)
+        }(
             original,
             interpolated
         )
     end
 end
-@propagate_inbounds State(dims::Volume, data) = rebuild(Vacuum(), data, dims)
+State(dims::Volume{N}, data; kwargs...) where N = State{N}(dims, data; kwargs...)
+@propagate_inbounds DimensionalData.rebuild(
+    ::State,
+    data,
+    dims,
+    refdims,
+    name,
+    metadata
+) = State(
+    dims,
+    data;
+    refdims=refdims,
+    name=name,
+    metadata=metadata
+)
 State(::UndefInitializer, dims::Volume) = @inbounds State(dims, Vector{ℂ}(undef, dims .|> length |> prod))
 State(dims) = State(undef, dims)
 State(init, op::Operator) =
