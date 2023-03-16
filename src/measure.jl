@@ -16,8 +16,6 @@ DimensionalData.dim2key(::Type{<: Length{S}}) where S = S
 
 (::Type{Dimension})(::Length{S}) where S = S
 
-Base.show(io::IO, l::Length) = print(io, "$(name(l))[$(l.val)]")
-
 Base.getindex(s::Dimension, indices...   ) = Length{s}(indices...)
 Base.getindex(s::Dimension, indices::ℤ...) = Length{s}(indices...)
 

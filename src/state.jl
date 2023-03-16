@@ -84,6 +84,7 @@ Base.parent(ψ::State) = ψ.original
 for method in :(dims, refdims, data, name, metadata, layerdims).args
     @eval DimensionalData.$method(ψ::State) = ψ |> parent |> DimensionalData.$method
 end
+Base.show(io::IO, mime::MIME"text/plain", ψ::State) = show(io, mime, parent(ψ))
 
 @inline Interpolations.interpolate(ψ::State) =
     ψ.interpolated |> # DimArray
@@ -111,7 +112,6 @@ function Interpolations.prefilter!(ψ::State)
     end
     Interpolations.prefilter!(real(ℂ), itp.coefs, Interpolations.itpflag(itp))
 end
-
 
 struct Interpolated{T, S <: DimensionalData.Selector{T}} <: DimensionalData.Selector{T}
     parent::S
