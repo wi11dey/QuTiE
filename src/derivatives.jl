@@ -7,11 +7,11 @@ struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
                 Interpolations.value_weights,
                 Interpolations.gradient_weights
             )),
-            Interpolations.itpinfo(interpolate(ψ))...,
-            DimIndices(ψ)
+            Ref.(Interpolations.itpinfo(interpolate(ψ)))...,
+            convert(AbstractArray{Tuple}, CartesianIndices(ψ))
         ) .|>
             Base.Fix2(getindex, dimnum(ψ, s[]))
-        new{Tuple{s}, typeof(weights)}(weights)
+        new{Tuple{s}, typeof(weights)}(weights::AbstractVector)
     end
 
     function Derivative{Tuple{s, t}}(ψ::State) where {s, t}
@@ -21,12 +21,12 @@ struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
                 Interpolations.gradient_weights,
                 Interpolations.hessian_weights
             )),
-            Interpolations.itpinfo(interpolate(ψ))...,
-            DimIndices(ψ)
+            Ref.(Interpolations.itpinfo(interpolate(ψ)))...,
+            convert(AbstractArray{Tuple}, CartesianIndices(ψ))
         )                            .|>
             Interpolations.symmatrix .|>
             hessian -> hessian[dimnum(ψ, s[]), dimnum(ψ, t[])]
-        new{Tuple{s, t}, typeof(weights)}(weights)
+        new{Tuple{s, t}, typeof(weights)}(weights::AbstractMatrix)
     end
 
     Derivative{S}() where {S <: Union{NTuple{1, Any}, NTuple{2, Any}}} = new{S, Nothing}(nothing)
