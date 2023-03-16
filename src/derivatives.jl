@@ -60,8 +60,8 @@ function SymbolicUtils.show_call(io::IO, d::Type{<: ∂{NTuple{n, <: Any}}}, arg
     print(io, "]")
 end
 
-(*)(                          d::∂,                             ψ::State) = mul!(similar(dψ),                d , ψ)
-LinearAlgebra.mul!(dψ::State, d::∂{<: Tuple, Nothing         }, ψ::State) = mul!(        dψ , cache_operator(d), ψ)
+(*)(                          d::∂,                             ψ::State) = mul!(similar(ψ), d, ψ)
+LinearAlgebra.mul!(dψ::State, d::∂{<: Tuple, Nothing         }, ψ::State) = mul!(dψ, cache_operator(d), ψ)
 LinearAlgebra.mul!(dψ::State, d::∂{<: Tuple, <: AbstractArray}, ψ::State) =
     dψ .= d.weights .|>
     wis -> Interpolations.InterpGetindex(interpolate(ψ))[wis...]

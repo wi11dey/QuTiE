@@ -4,73 +4,93 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
     original::DimArray{ℂ, N, D, R, Orig, Na, Me}
     interpolated::Interp
 
-    function State{N}(dims::Volume{N},
-                      data::AbstractArray{ℂ};
-                      refdims=(),
-                      name=DimensionalData.NoName(),
-                      metdata=DimensionalData.NoMetadata()) where N
-        @boundscheck length(unique(dims)) == length(dims) || throw(DimensionMismatch("Duplicate dimensions"))
+    function DimensionalData.rebuild(ψ::Union{State, Vacuum},
+                                     data::AbstractArray{ℂ},
+                                     dims::NTuple{N},
+                                     refdims,
+                                     name,
+                                     metadata) where N
+        isempty(dims) && return Vacuum()
         sz = length.(dims)
         @boundscheck length(data) == prod(sz) || throw(DimensionMismatch("Mismatch between product of dimensions and length of data"))
-        reshaped = Base.ReshapedArray(data, sz, ())
-        spaces = Dimension.(dims)
-        spec = map(spaces) do space
-            isfield(space) || return NoInterp()
-            BSpline(Quadratic(ifelse(isperiodic(space), Periodic, Natural)(OnCell())))
-        end
-        ax = Base.OneTo.(sz)
-        padded = Interpolations.padded_axes(ax, spec)
-        itp = scale(Interpolations.BSplineInterpolation(
-            ℝ,
-            OffsetArray(Base.ReshapedArray(Vector{ℂ}(
-                undef,
-                prod(length.(padded))
-            ), length.(padded), ()), padded),
-            spec,
-            ax
-        ), DimensionalData.val.(dims)...) |>
-            Base.Fix2(extrapolate, ifelse.(
-                isperiodic.(spaces),
-                Ref(Periodic()),
-                Ref(Throw())
-            )) |>
-                Base.Fix2(extrapolate, zero(ℂ)) |>
-                Interpolation
+        reshaped = Base.ReshapedArray(vec(data), sz, ())
         original = DimArray(reshaped, dims; refdims=refdims, name=name, metadata=metadata)
-        interpolated = DimArray(itp, set.(dims, Ref(DimensionalData.NoLookup())))
-        new{
-            N,
-            typeof.(Base.getfield.(Ref(original), (
-                :dims,
-                :refdims,
-                :data,
-                :name,
-                :metadata
-            )))...,
-            typeof(interpolated)
-        }(
-            original,
-            interpolated
-        )
+        if DimensionalData.dims(dims) == dims
+            # Fast path:
+            interpolated = ψ.interpolated
+            new{typeof(ψ).parameters...}(original, interpolated)
+        else
+            spaces = Dimension.(dims)
+            spec = map(spaces) do space
+                isfield(space) || return NoInterp()
+                BSpline(Quadratic(ifelse(isperiodic(space), Periodic, Natural)(OnCell())))
+            end
+            ax = Base.OneTo.(sz)
+            padded = Interpolations.padded_axes(ax, spec)
+            itp = scale(Interpolations.BSplineInterpolation(
+                ℝ,
+                OffsetArray(Base.ReshapedArray(Vector{ℂ}(
+                    undef,
+                    prod(length.(padded))
+                ), length.(padded), ()), padded),
+                spec,
+                ax
+            ), DimensionalData.val.(dims)...) |>
+                Base.Fix2(extrapolate, ifelse.(
+                    isperiodic.(spaces),
+                    Ref(Periodic()),
+                    Ref(Throw())
+                )) |>
+                    Base.Fix2(extrapolate, zero(ℂ)) |>
+                    Interpolation
+            interpolated = DimArray(itp, set.(dims, Ref(DimensionalData.NoLookup())))
+            new{
+                N,
+                typeof.(Base.getfield.(Ref(original), (
+                    :dims,
+                    :refdims,
+                    :data,
+                    :name,
+                    :metadata
+                )))...,
+                typeof(interpolated)
+            }(
+                original,
+                interpolated
+            )
+        end
     end
 end
-State(dims::Volume{N}, data; kwargs...) where N = State{N}(dims, data; kwargs...)
 @propagate_inbounds DimensionalData.rebuild(
-    ::State,
+    ψ::Union{State, Vacuum};
     data,
     dims,
     refdims,
     name,
     metadata
-) = State(
+) = rebuild(
+    ψ,
+    data,
     dims,
-    data;
-    refdims=refdims,
-    name=name,
-    metadata=metadata
+    refdims,
+    name,
+    metadata
+)
+@propagate_inbounds State(
+    dims::Tuple,
+    data::AbstractArray{ℂ};
+    refdims=(),
+    name=DimensionalData.NoName(),
+    metadata=DimensionalData.NoMetadata()
+) = rebuild(
+    Vacuum(),
+    data,
+    dims,
+    refdims,
+    name,
+    metadata
 )
 State(::UndefInitializer, dims::Volume) = @inbounds State(dims, Vector{ℂ}(undef, dims .|> length |> prod))
-State(dims) = State(undef, dims)
 State(init, op::Operator) =
     Iterators.map(filter_type(Space, op)) do space
         # TODO
@@ -78,13 +98,15 @@ State(init, op::Operator) =
     end        |>
         Volume |>
         Base.Fix1(State, init)
+State(dims) = State(undef, dims)
 
 Base.parent(ψ::State) = ψ.original
+
+Base.show(io::IO, mime::MIME"text/plain", ψ::State) = show(io, mime, parent(ψ))
 
 for method in :(dims, refdims, data, name, metadata, layerdims).args
     @eval DimensionalData.$method(ψ::State) = ψ |> parent |> DimensionalData.$method
 end
-Base.show(io::IO, mime::MIME"text/plain", ψ::State) = show(io, mime, parent(ψ))
 
 @inline Interpolations.interpolate(ψ::State) =
     ψ.interpolated |> # DimArray
