@@ -1,32 +1,16 @@
 struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
     weights::Weights
 
-    function Derivative{Tuple{s}}(ψ::State) where s
-        weights = Interpolations.weightedindexes.(
-            Ref((
-                Interpolations.value_weights,
-                Interpolations.gradient_weights
-            )),
-            Ref.(Interpolations.itpinfo(interpolate(ψ)))...,
-            convert(AbstractArray{Tuple}, CartesianIndices(ψ))
-        ) .|>
-            Base.Fix2(getindex, dimnum(ψ, s[]))
-        new{Tuple{s}, typeof(weights)}(weights::AbstractVector)
-    end
+    function SciMLOperators.cache_operator(::Derivative{S}, ψ::State{M}) where {S <: Union{NTuple{1, Any}, NTuple{2, Any}}, M}
+        @inline select(::Type{Tuple{s   }}, weightedindexes) where  s     = Base.getindex(weightedindexes, dimnum(ψ, s[]))
+        @inline select(::Type{Tuple{s, t}}, weightedindexes) where {s, t} = Base.getindex(Interpolations.symmatrix(weightedindexes), dimnum(ψ, s[]), dimnum(ψ, t[]))
 
-    function Derivative{Tuple{s, t}}(ψ::State) where {s, t}
-        weights = Interpolations.weightedindexes.(
-            Ref((
-                Interpolations.value_weights,
-                Interpolations.gradient_weights,
-                Interpolations.hessian_weights
-            )),
-            Ref.(Interpolations.itpinfo(interpolate(ψ)))...,
-            convert(AbstractArray{Tuple}, CartesianIndices(ψ))
-        )                            .|>
-            Interpolations.symmatrix .|>
-            hessian -> hessian[dimnum(ψ, s[]), dimnum(ψ, t[])]
-        new{Tuple{s, t}, typeof(weights)}(weights::AbstractMatrix)
+        weights = NTuple{M, Interpolations.WeightedAdjIndex}[select(S, Interpolations.weightedindexes(
+            (Interpolations.value_weights, Interpolations.gradient_weights, Interpolations.hessian_weights)[1:fieldcount(S) + 1],
+            Interpolations.itpinfo(interpolate(ψ))...,
+            convert(Tuple, coords)
+        )) for coords in CartesianIndices(ψ)]
+        new{S, typeof(weights)}(weights)
     end
 
     Derivative{S}() where {S <: Union{NTuple{1, Any}, NTuple{2, Any}}} = new{S, Nothing}(nothing)
@@ -45,7 +29,7 @@ end
 Base.getindex(::Type{∂{NTuple{n, Any}}}, space::Space    ) where n = ∂{NTuple{n, space}}()
 Base.getindex(::Type{∂                }, spaces::Space...)         = ∂{Tuple{spaces...}}()
 
-cache_operator(d::Derivative{S}, ψ::State) where S = Derivative{S}(ψ)
+# SciMLOperators.cache_operator(d::Derivative{S}, ψ::State) where S = Derivative{S}(ψ)
 
 """Optimized for Hessians from second-order interpolation and finite differencing."""
 ∂{S}() where S = prod(

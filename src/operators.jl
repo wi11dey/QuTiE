@@ -1,3 +1,4 @@
+using SciMLOperators
 import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, FunctionOperator, AdjointOperator, InvertedOperator, islinear, isconstant, cache_operator, update_coefficients!
 
 (^)(op::Operator, n::ℤ) = ComposedOperator(Iterators.repeated(op, n)...)
