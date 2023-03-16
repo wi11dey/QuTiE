@@ -1,8 +1,8 @@
 struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
     weights::Weights
 
-    function cache_operator(d::Derivative{Tuple{s}}, ψ::State) where s
-        weights = Interpolations.weighted_indexes.(
+    function Derivative{Tuple{s}}(ψ::State) where s
+        weights = Interpolations.weightedindexes.(
             Ref((
                 Interpolations.value_weights,
                 Interpolations.gradient_weights
@@ -10,12 +10,12 @@ struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
             Interpolations.itpinfo(interpolate(ψ))...,
             DimIndices(ψ)
         ) .|>
-            Base.Fix2(getindex, dimnum(ψ, s))
+            Base.Fix2(getindex, dimnum(ψ, s[]))
         new{Tuple{s}, typeof(weights)}(weights)
     end
 
-    function cache_operator(d::Derivative{Tuple{s, t}}, ψ::State) where {s, t}
-        weights = Interpolations.weighted_indexes.(
+    function Derivative{Tuple{s, t}}(ψ::State) where {s, t}
+        weights = Interpolations.weightedindexes.(
             Ref((
                 Interpolations.value_weights,
                 Interpolations.gradient_weights,
@@ -25,11 +25,11 @@ struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
             DimIndices(ψ)
         )                            .|>
             Interpolations.symmatrix .|>
-            hessian -> hessian[dimnum(ψ, s), dimnum(ψ, t)]
+            hessian -> hessian[dimnum(ψ, s[]), dimnum(ψ, t[])]
         new{Tuple{s, t}, typeof(weights)}(weights)
     end
 
-    Derivative{S}() where {S <: NTuple{2, Any}} = new{S, Nothing}(nothing)
+    Derivative{S}() where {S <: Union{NTuple{1, Any}, NTuple{2, Any}}} = new{S, Nothing}(nothing)
 end
 const ∂ = Derivative
 export ∂
@@ -44,6 +44,8 @@ end
 
 Base.getindex(::Type{∂{NTuple{n, Any}}}, space::Space    ) where n = ∂{NTuple{n, space}}()
 Base.getindex(::Type{∂                }, spaces::Space...)         = ∂{Tuple{spaces...}}()
+
+cache_operator(d::Derivative{S}, ψ::State) where S = Derivative{S}(ψ)
 
 """Optimized for Hessians from second-order interpolation and finite differencing."""
 ∂{S}() where S = prod(
