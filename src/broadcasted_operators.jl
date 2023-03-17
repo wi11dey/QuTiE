@@ -14,3 +14,9 @@ function LinearAlgebra.mul!(du::AbstractArray, op::BroadcastedPowerOperator, u::
     du
 end
 has_mul!(::BroadcastedPowerOperator) = true
+SymbolicUtils.operation(::BroadcastedPowerOperator) = (.^)
+function SymbolicUtils.show_call(io::IO, ::typeof(.^), args)
+    SymbolicUtils.print_arg(io, args[1], paren=true)
+    print(io, " .^ ")
+    SymbolicUtils.print_arg(io, args[2], paren=true)
+end
