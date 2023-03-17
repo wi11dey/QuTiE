@@ -13,5 +13,7 @@ Base.first(::Time) = 0
 Base.last( ::Time) = ∞
 Base.show(io::IO, ::Time) = print(io, "t")
 
+DimensionalData.name(::Time) = :t
+
 (*)(                   τ::Time, _) = τ.t
 LinearAlgebra.mul!(du, τ::Time, u) = du .= τ*u

@@ -1,4 +1,6 @@
-using Infinity, DimensionalData
+using Infinity
+using DimensionalData
+using DimensionalData: key2dim
 
 export depends, ∞
 
@@ -13,7 +15,7 @@ Base.size(::Dimension) = (ℶ₂, ℶ₂) # Map from ψ ↦ ψ, a set of all dim
 """Applies the privileged basis identity x̂∣ψ⟩ = x∣ψ⟩."""
 (*)(dim::Dimension, u::AbstractDimArray) = mul!(similar(u), dim, u)
 function LinearAlgebra.mul!(du, dim::Dimension, u::AbstractDimArray)
-    du .= DimensionalData.val.(dims.(DimIndices(u), Ref(DimensionalData.key2dim(dim)))) .* u
+    du .= getindex.(DimPoints(u), dimnum(u, key2dim(dim))) .* u
     du
 end
 LinearAlgebra.mul!(du::AbstractVecOrMat, dim::Dimension, u::Union{DimensionalData.AbstractDimVector, DimensionalData.AbstractDimMatrix}) =

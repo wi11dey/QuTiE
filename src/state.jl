@@ -6,7 +6,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
 
     function DimensionalData.rebuild(ψ::Union{State, Vacuum},
                                      data::AbstractArray,
-                                     dims::NTuple{N},
+                                     dims::NTuple{N, Any},
                                      refdims,
                                      name,
                                      metadata) where N
@@ -91,12 +91,15 @@ end
     metadata
 )
 State(::UndefInitializer, dims::Volume) = @inbounds State(Vector{ℂ}(undef, dims .|> length |> prod), dims)
-State(::UndefInitializer, op::Operator) =
-    filter_type(Space, op)            |>
+function State(op::Operator)
+    ψ = filter_type(Space, op)        |>
     unique                           .|>
     (space -> space[-10.0:0.1:10.0])  |> # TODO
     Volume                            |>
-    Base.Fix1(State, undef)
+    ones
+    op*ψ
+    # TODO: mul!(ψ, op, ψ)
+end
 
 DimensionalData.dimconstructor(::Tuple{Length, Vararg{DimensionalData.Dimension}}) = State
 
@@ -148,4 +151,6 @@ end
     # Multiplexes 2 child DimArrays:
     (any(indices.parameters .<: Interpolated)
      ? :(ψ.interpolated[indices...])
-     : :(ψ.data[        indices...]))
+     : :(ψ.original[    indices...]))
+# Base.getindex(ψ::State, i::Integer, j::Integer, k::Integer...) =
+#     ψ.original[i, j, k...]
