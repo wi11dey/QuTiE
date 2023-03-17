@@ -1,6 +1,4 @@
-using Infinity
-
-export Space, ∞, isfield, isbounded, isperiodic, isclassical
+export Space, isfield, isbounded, isperiodic, isclassical
 
 # v2: overload dimnum and friends so that they accept Spaces and not just Lengths
 struct Space{T, name} <: Dimension{T}

@@ -2,7 +2,6 @@ module QuTiE
 
 import Base: +, -, *, /, ^, ==, @propagate_inbounds
 import TermInterface, SymbolicUtils
-import AbstractTrees
 using LinearAlgebra
 using DimensionalData
 # using ModelingToolkit, SymbolicUtils # v4/5

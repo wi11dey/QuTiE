@@ -15,7 +15,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
         @boundscheck length(data) == prod(sz) || throw(DimensionMismatch("Mismatch between product of dimensions and length of data"))
         reshaped = Base.ReshapedArray(vec(data), sz, ())
         original = DimArray(reshaped, dims; refdims=refdims, name=name, metadata=metadata)
-        if DimensionalData.dims(dims) == dims
+        if DimensionalData.dims(ψ) == dims
             # Fast path:
             interpolated = ψ.interpolated
             new{typeof(ψ).parameters...}(original, interpolated)
@@ -91,14 +91,12 @@ end
     metadata
 )
 State(::UndefInitializer, dims::Volume) = @inbounds State(dims, Vector{ℂ}(undef, dims .|> length |> prod))
-State(init, op::Operator) =
-    Iterators.map(filter_type(Space, op)) do space
-        # TODO
-        space[-10.0:0.1:10.0]
-    end        |>
-        Volume |>
-        Base.Fix1(State, init)
-State(dims) = State(undef, dims)
+State(::UndefInitializer, op::Operator) =
+    filter_type(Space, op)            |>
+    unique                           .|>
+    (space -> space[-10.0:0.1:10.0])  |> # TODO
+    Volume                            |>
+    Base.Fix1(State, undef)
 
 Base.parent(ψ::State) = ψ.original
 

@@ -1,4 +1,4 @@
-struct Vacuum <: AbstractDimArray{ℂ, 0, Tuple{}, AbstractArray{ℂ, 0}} end
+struct Vacuum <: AbstractDimArray{ℂ, 0, Tuple{}, Array{ℂ, 0}} end
 DimensionalData.parent(::Vacuum) = fill(zero(ℂ))
 DimensionalData.dims(::Vacuum) = ()
 DimensionalData.refdims(::Vacuum) = ()

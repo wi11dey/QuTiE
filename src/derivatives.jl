@@ -60,10 +60,10 @@ function SymbolicUtils.show_call(io::IO, d::Type{<: ∂{NTuple{n, <: Any}}}, arg
     print(io, "]")
 end
 
+# TODO: is this necessary?
 (*)(                          d::∂,                             ψ::State) = mul!(similar(ψ), d, ψ)
 LinearAlgebra.mul!(dψ::State, d::∂{<: Tuple, Nothing         }, ψ::State) = mul!(dψ, cache_operator(d, ψ), ψ)
 function LinearAlgebra.mul!(dψ::State, d::∂{<: Tuple, <: AbstractArray}, ψ::State)
-    dψ .= d.weights .|>
-    wis -> Interpolations.InterpGetindex(interpolate(ψ))[wis...]
+    dψ .= (wis -> Interpolations.InterpGetindex(interpolate(ψ))[wis...]).(d.weights)
     dψ
 end

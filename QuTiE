@@ -10,9 +10,9 @@ requirements = quote
     using QuTiE
     using PhysicalConstants: CODATA2018, PhysicalConstant
     using DifferentialEquations
-    using AlgebraOfGraphics
     using LaTeXStrings
     using Revise
+    # using AlgebraOfGraphics
     # using Makie
     # try
     #     using GLMakie
@@ -25,9 +25,11 @@ end
 end
 
 for name ∈ names(CODATA2018, all=true)
-    @eval if CODATA2018.$name isa PhysicalConstant
-        import PhysicalConstants.CODATA2018: $name
-    end
+    getproperty(CODATA2018, name) isa PhysicalConstant || continue
+    @eval import PhysicalConstants.CODATA2018: $name
+    synonym = Symbol(replace(string(name), r"_.+$"=>QuTiE.sub∘Base.Fix2(SubString, 2)))
+    synonym == name && continue
+    @eval const $synonym = $name
 end
 
 const ħ² = ħ^2
@@ -40,66 +42,66 @@ __revise_mode__ = :evalassign
 function main(arguments::String...)
     length(arguments) == 1 && ARGS[1] ∉ ("-h", "--help", "-?") || error("Usage: ./$(normpath(PROGRAM_FILE)) spec.jl")
     includet(arguments[1])
-    isdefined(:ψ₀) || error("Must define initial state ψ₀")
-    if isdefined(:H) || isdefined(:ℋ)
-        if isdefined(:H) && isdefined(:ℋ)
+    isdefined(Main, :ψ₀) || error("Must define initial state ψ₀")
+    if isdefined(Main, :H) || isdefined(Main, :ℋ)
+        if isdefined(Main, :H) && isdefined(Main, :ℋ)
             error("Cannot define both H and ℋ")
         end
-        if isdefined(:L) || isdefined(:ℒ)
+        if isdefined(Main, :L) || isdefined(Main, :ℒ)
             error("Cannot define both Hamiltonian and Lagrangian")
         end
-        if isdefined(:ℋ)
+        if isdefined(Main, :ℋ)
             # Canonicalize:
             H = ℋ
         end
         # Hamiltonian formulation:
-        ψ = Observable([(
-            filter_type(Space, op)
-            |> unique
-            |> Volume
-            |> ones
-            |> Base.Fix1(*, ψ₀)
-        )])
-        integrator = init(ODEProblem(-im*H/ħ, ψ[][begin], (0, ∞)))
+        # ψ = Observable([(
+        #     filter_type(Space, op)
+        #     |> unique
+        #     |> Volume
+        #     |> ones
+        #     |> Base.Fix1(*, ψ₀)
+        # )])
+        # integrator = init(ODEProblem(-im*H/ħ, ψ[][begin], (0, ∞)))
     end
-    if isdefined(:L) || isdefined(:ℒ)
-        if isdefined(:L) && isdefined(:ℒ)
+    if isdefined(Main, :L) || isdefined(Main, :ℒ)
+        if isdefined(Main, :L) && isdefined(Main, :ℒ)
             error("Cannot define both L and ℒ")
         end
-        if isdefined(:H) || isdefined(:ℋ)
+        if isdefined(Main, :H) || isdefined(Main, :ℋ)
             error("Cannot define both Lagrangian and Hamiltonian")
         end
-        if isdefined(:ℒ)
+        if isdefined(Main, :ℒ)
             # Canonicalize:
             L = ℒ
         end
         # v2: Lagrangian formulation
     end
-    if !isdefined(:📊) && isdefined(:output)
-        📊 = output
-    end
-    if !isdefined(:📊)
-        📊 = visual(Wireframe)
-    end
-    if isdefined(:x)
-        # Cartesian default.
-        if isdefined(:y)
-            if isdefined(:z)
-            end
-        end
-    elseif isdefined(:r) || isdefined(:ρ)
-        if isdefined(:θ) && isdefined(:φ)
-            # Spherical default.
-        elseif (isdefined(:θ) || isdefined(:φ)) && isdefined(:z)
-            #
-        end
-    else
-    end
-    ψ = Observable(ψ₀*ones(axes(H)))
-    draw(data(ψ)*📊)
-    for (ψ, t) ∈ tuples(integrator)
-        @show ψ, t
-    end
+    # if !isdefined(Main, :📊) && isdefined(Main, :output)
+    #     📊 = output
+    # end
+    # if !isdefined(Main, :📊)
+    #     📊 = visual(Wireframe)
+    # end
+    # if isdefined(Main, :x)
+    #     # Cartesian default.
+    #     if isdefined(Main, :y)
+    #         if isdefined(Main, :z)
+    #         end
+    #     end
+    # elseif isdefined(Main, :r) || isdefined(Main, :ρ)
+    #     if isdefined(Main, :θ) && isdefined(Main, :φ)
+    #         # Spherical default.
+    #     elseif (isdefined(Main, :θ) || isdefined(Main, :φ)) && isdefined(Main, :z)
+    #         #
+    #     end
+    # else
+    # end
+    # ψ = Observable(ψ₀*ones(axes(H)))
+    # draw(data(ψ)*📊)
+    # for (ψ, t) ∈ tuples(integrator)
+    #     @show ψ, t
+    # end
 end
 
 function julia_main()::Cint
