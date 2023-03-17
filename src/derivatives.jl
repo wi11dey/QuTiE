@@ -9,7 +9,7 @@ struct Derivative{S <: Tuple, Weights} <: Operator{ℂ}
             (Interpolations.value_weights, Interpolations.gradient_weights, Interpolations.hessian_weights)[1:fieldcount(S) + 1],
             Interpolations.itpinfo(interpolate(ψ))...,
             convert(Tuple, coords)
-        )) for coords in CartesianIndices(ψ)]
+        )) for coords in CartesianIndices(ψ)] # TODO maybe DimPoints instead of CartesianIndices
         new{S, typeof(weights)}(weights)
     end
 

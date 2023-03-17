@@ -5,7 +5,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
     interpolated::Interp
 
     function DimensionalData.rebuild(ψ::Union{State, Vacuum},
-                                     data::AbstractArray{ℂ},
+                                     data::AbstractArray,
                                      dims::NTuple{N},
                                      refdims,
                                      name,
@@ -13,7 +13,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
         isempty(dims) && return Vacuum()
         sz = length.(dims)
         @boundscheck length(data) == prod(sz) || throw(DimensionMismatch("Mismatch between product of dimensions and length of data"))
-        reshaped = Base.ReshapedArray(vec(data), sz, ())
+        reshaped = Base.ReshapedArray(convert(AbstractArray{ℂ}, data) |> vec |> parent, sz, ())
         original = DimArray(reshaped, dims; refdims=refdims, name=name, metadata=metadata)
         if DimensionalData.dims(ψ) == dims
             # Fast path:
@@ -35,7 +35,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
                 ), length.(padded), ()), padded),
                 spec,
                 ax
-            ), DimensionalData.val.(dims)...) |>
+            ), parent.(parent.(dims))...) |>
                 Base.Fix2(extrapolate, ifelse.(
                     isperiodic.(spaces),
                     Ref(Periodic()),
@@ -77,8 +77,8 @@ end
     metadata
 )
 @propagate_inbounds State(
-    dims::Tuple,
-    data::AbstractArray{ℂ};
+    data::AbstractArray,
+    dims::Tuple;
     refdims=(),
     name=DimensionalData.NoName(),
     metadata=DimensionalData.NoMetadata()
@@ -90,7 +90,7 @@ end
     name,
     metadata
 )
-State(::UndefInitializer, dims::Volume) = @inbounds State(dims, Vector{ℂ}(undef, dims .|> length |> prod))
+State(::UndefInitializer, dims::Volume) = @inbounds State(Vector{ℂ}(undef, dims .|> length |> prod), dims)
 State(::UndefInitializer, op::Operator) =
     filter_type(Space, op)            |>
     unique                           .|>
@@ -98,11 +98,11 @@ State(::UndefInitializer, op::Operator) =
     Volume                            |>
     Base.Fix1(State, undef)
 
-Base.parent(ψ::State) = ψ.original
+DimensionalData.dimconstructor(::Tuple{Length, Vararg{DimensionalData.Dimension}}) = State
 
-DimensionalData.show_after(io::IO, mime::MIME, ψ::State) = DimensionalData.show_after(io, mime, parent(ψ))
-for method in :(dims, refdims, data, name, metadata, layerdims).args
-    @eval DimensionalData.$method(ψ::State) = ψ |> parent |> DimensionalData.$method
+DimensionalData.show_after(io::IO, mime::MIME, ψ::State) = DimensionalData.show_after(io, mime, ψ.original)
+for method in :(parent, dims, refdims, data, name, metadata, layerdims).args
+    @eval DimensionalData.$method(ψ::State) = DimensionalData.$method(ψ.original)
 end
 
 @inline Interpolations.interpolate(ψ::State) =
@@ -115,9 +115,7 @@ function Interpolations.prefilter!(ψ::State)
         parent      |> # AbstractExtrapolation
         parent      |> # ScaledInterpolation
         parent         # BSplineInterpolation
-    orig = ψ   |> # State
-        parent |> # DimArray
-        parent    # AbstractArray
+    orig = parent(ψ)
     if axes(orig) == axes(itp.coefs)
         copyto!(itp.coefs, orig)
     else

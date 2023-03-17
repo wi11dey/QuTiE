@@ -3,7 +3,6 @@ module QuTiE
 import Base: +, -, *, /, ^, ==, @propagate_inbounds
 import TermInterface, SymbolicUtils
 using LinearAlgebra
-using DimensionalData
 # using ModelingToolkit, SymbolicUtils # v4/5
 # using MarchingCubes, ConstructiveGeometry, Compose # v6/7
 
