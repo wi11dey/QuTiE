@@ -20,7 +20,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
             interpolated = ψ.interpolated
             new{typeof(ψ).parameters...}(original, interpolated)
         else
-            spaces = Dimension.(dims)
+            spaces = dim2key.(dims)
             spec = map(spaces) do space
                 isfield(space) || return NoInterp()
                 BSpline(Quadratic(ifelse(isperiodic(space), Periodic, Natural)(OnCell())))
@@ -101,7 +101,8 @@ function State(op::Operator)
     # TODO: mul!(ψ, op, ψ)
 end
 
-DimensionalData.dimconstructor(::Tuple{Length, Vararg{DimensionalData.Dimension}}) = State
+DimensionalData.dimconstructor(dims::Tuple{Length{S}, Vararg{DimensionalData.Dimension}}) where S =
+    S isa Dimension ? State : dimconstructor(Base.tail(dims))
 
 DimensionalData.show_after(io::IO, mime::MIME, ψ::State) = DimensionalData.show_after(io, mime, ψ.original)
 for method in :(parent, dims, refdims, data, name, metadata, layerdims).args

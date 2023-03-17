@@ -1,6 +1,6 @@
 using Infinity
 using DimensionalData
-using DimensionalData: key2dim
+import DimensionalData: key2dim, dim2key
 
 export depends, ∞
 
