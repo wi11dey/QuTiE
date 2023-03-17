@@ -67,3 +67,4 @@ function LinearAlgebra.mul!(dψ::State, d::∂{<: Tuple, <: AbstractArray}, ψ::
     dψ .= (wis -> Interpolations.InterpGetindex(interpolate(ψ))[wis...]).(d.weights)
     dψ
 end
+has_mul!(::∂) = true

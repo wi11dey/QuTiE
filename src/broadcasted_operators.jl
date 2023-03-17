@@ -2,6 +2,8 @@ struct BroadcastedPowerOperator{T, Base <: Number, Op <: Operator{T}} <: Operato
     base::Base
     op::Op
 end
+Base.iszero(::BroadcastedPowerOperator) = false
+isconstant(op::BroadcastedPowerOperator) = isconstant(op.op)
 getops(op::BroadcastedPowerOperator) = op.base, op.op
 Base.broadcasted(::typeof(^), base::Number, op::Operator) = BroadcastedPowerOperator(base, op)
 # TODO: is this necessary?
@@ -11,3 +13,4 @@ function LinearAlgebra.mul!(du::AbstractArray, op::BroadcastedPowerOperator, u::
     du .= op.base.^du
     du
 end
+has_mul!(::BroadcastedPowerOperator) = true

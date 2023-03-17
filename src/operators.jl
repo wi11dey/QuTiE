@@ -1,5 +1,5 @@
 using SciMLOperators
-import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, IdentityOperator, FunctionOperator, AdjointOperator, InvertedOperator, islinear, isconstant, cache_operator, update_coefficients!
+import SciMLOperators: AbstractSciMLOperator as Operator, AbstractSciMLScalarOperator as ScalarOperator, getops, ComposedOperator, ScaledOperator, ComposedScalarOperator, AddedOperator, IdentityOperator, FunctionOperator, AdjointOperator, InvertedOperator, islinear, isconstant, cache_operator, update_coefficients!, has_mul!
 
 (^)(op::Operator, n::ℤ) = ComposedOperator(Iterators.repeated(op, n)...)
 SymbolicUtils.istree(::Operator) = true
@@ -23,4 +23,4 @@ Base.show(io::IO, op::Operator) = SymbolicUtils.show_term(IOContext(io, :compact
 Base.show(io::IO, op::ScalarOperator) = print(io, convert(Number, op))
 
 include("parallel_operators.jl")
-include("broadcast.jl")
+include("broadcasted_operators.jl")
