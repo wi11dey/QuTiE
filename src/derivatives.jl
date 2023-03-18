@@ -5,11 +5,11 @@ end
 struct Derivative{S <: Tuple, Weights <: Union{Nothing, AbstractDimArray}} <: Operator{ℂ}
     weights::Weights
 
-    function SciMLOperators.cache_operator(::Derivative{S}, ψ::State{M}) where {S <: Union{NTuple{1, Any}, NTuple{2, Any}}, M}
+    function SciMLOperators.cache_operator(::Derivative{S, Nothing}, ψ::State{M}) where {S <: Union{NTuple{1, Any}, NTuple{2, Any}}, M}
         @inline format(::Type{<: NTuple{1, Any}}, weightedindexes) = weightedindexes
         @inline format(::Type{<: NTuple{2, Any}}, weightedindexes) = Interpolations.symmatrix(weightedindexes)
 
-        dimnums = dimnum.(Ref(ψ), S.parameters)
+        dimnums = dimnum.(Ref(ψ), Tuple(S.parameters))
         weights = NTuple{M, Interpolations.WeightedAdjIndex}[
             Base.getindex(format(S, Interpolations.weightedindexes(
                 (
@@ -37,6 +37,10 @@ end
 (^)(::Type{∂{NTuple{n, S  }}}, m::ℤ) where {n, S} = ∂{NTuple{n*m, S  }}
 (^)(::Type{∂{NTuple{n, Any}}}, m::ℤ) where  n     = ∂{NTuple{n*m, Any}}
 (^)(::Type{∂                }, m::ℤ)              = ∂{NTuple{1,   Any}}^m
+
+SciMLOperators.cache_operator(d::∂{S}, ψ::State) where S =
+    # Fast path:
+    dims(ψ) == dims(d.weights) ? d : cache_operator(∂{S}(), ψ)
 
 Base.getindex(::Type{∂{NTuple{n, Any}}}, space::Space    ) where n = ∂{NTuple{n, space}}()
 Base.getindex(::Type{∂                }, spaces::Space...)         = ∂{Tuple{spaces...}}()

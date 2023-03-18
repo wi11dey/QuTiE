@@ -91,17 +91,13 @@ end
     metadata
 )
 State(::UndefInitializer, dims::Volume) = @inbounds State(Vector{ℂ}(undef, dims .|> length |> prod), dims)
-function State(op::Operator)
-    ψ = filter_type(Space, op)            |>
-        unique                           .|>
-        (space -> space[-10.0:0.1:10.0])  |> # TODO
-        Volume                            |>
-        Base.Fix1(State, undef)
-    fill!(ψ, one(ℂ))
-    ψ = op*ψ # TODO: mul!(ψ, op, ψ)
-    Interpolations.prefilter!(ψ)
-    ψ
-end
+State(::UndefInitializer, op::Operator) =
+    filter_type(Space, op)            |>
+    unique                           .|>
+    (space -> space[-10.0:0.1:10.0])  |> # TODO
+    Volume                            |>
+    Base.Fix1(State, undef)
+Base.ones(op::Operator) = fill!(State(undef, op), one(ℂ))
 
 DimensionalData.show_after(io::IO, mime::MIME, ψ::State) = DimensionalData.show_after(io, mime, ψ.original)
 for method in :(parent, dims, refdims, data, name, metadata, layerdims).args
