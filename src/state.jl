@@ -23,7 +23,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
             spaces = dim2key.(dims)
             spec = map(spaces) do space
                 isfield(space) || return NoInterp()
-                BSpline(Quadratic(ifelse(isperiodic(space), Periodic, Natural)(OnCell())))
+                BSpline(Cubic(ifelse(isperiodic(space), Periodic, Natural)(OnCell())))
             end
             ax = Base.OneTo.(sz)
             padded = Interpolations.padded_axes(ax, spec)
@@ -92,17 +92,16 @@ end
 )
 State(::UndefInitializer, dims::Volume) = @inbounds State(Vector{ℂ}(undef, dims .|> length |> prod), dims)
 function State(op::Operator)
-    ψ = filter_type(Space, op)        |>
-    unique                           .|>
-    (space -> space[-10.0:0.1:10.0])  |> # TODO
-    Volume                            |>
-    ones
-    op*ψ
-    # TODO: mul!(ψ, op, ψ)
+    ψ = filter_type(Space, op)            |>
+        unique                           .|>
+        (space -> space[-10.0:0.1:10.0])  |> # TODO
+        Volume                            |>
+        Base.Fix1(State, undef)
+    fill!(ψ, one(ℂ))
+    ψ = op*ψ # TODO: mul!(ψ, op, ψ)
+    Interpolations.prefilter!(ψ)
+    ψ
 end
-
-DimensionalData.dimconstructor(dims::Tuple{Length{S}, Vararg{DimensionalData.Dimension}}) where S =
-    S isa Dimension ? State : DimensionalData.dimconstructor(Base.tail(dims))
 
 DimensionalData.show_after(io::IO, mime::MIME, ψ::State) = DimensionalData.show_after(io, mime, ψ.original)
 for method in :(parent, dims, refdims, data, name, metadata, layerdims).args
@@ -112,13 +111,12 @@ end
 @inline Interpolations.interpolate(ψ::State) =
     ψ.interpolated |> # DimArray
     parent         |> # Interpolation
-    parent            # AbstractExtrapolation
+    parent         |> # AbstractExtrapolation
+    parent         |> # AbstractExtrapolation
+    parent         |> # ScaledInterpolation
+    parent            # BSplineInterpolation
 function Interpolations.prefilter!(ψ::State)
-    itp = ψ         |> # State
-        interpolate |> # AbstractExtrapolation
-        parent      |> # AbstractExtrapolation
-        parent      |> # ScaledInterpolation
-        parent         # BSplineInterpolation
+    itp = interpolate(ψ)
     orig = parent(ψ)
     if axes(orig) == axes(itp.coefs)
         copyto!(itp.coefs, orig)
