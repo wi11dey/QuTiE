@@ -1,6 +1,5 @@
 using Infinity
 using DimensionalData
-import DimensionalData: key2dim, dim2key
 
 export depends, ∞
 
@@ -14,10 +13,13 @@ Base.size(::Dimension) = (ℶ₂, ℶ₂) # Map from ψ ↦ ψ, a set of all dim
 
 """Applies the privileged basis identity x̂∣ψ⟩ = x∣ψ⟩."""
 (*)(dim::Dimension, u::AbstractDimArray) = mul!(similar(u), dim, u)
-function LinearAlgebra.mul!(du, dim::Dimension, u::AbstractDimArray)
-    du .= getindex.(DimPoints(u), dimnum(u, key2dim(dim))) .* u
+function LinearAlgebra.mul!(du, dim::Dimension, u::AbstractDimArray, α, β)
+    du .= getindex.(DimPoints(u), dimnum(u, dim)) .* u .* α .+ du .* β
     du
 end
+LinearAlgebra.mul!(du, dim::Dimension, u::AbstractDimArray) = mul!(du, dim, u, true, false)
 LinearAlgebra.mul!(du::AbstractVecOrMat, dim::Dimension, u::Union{DimensionalData.AbstractDimVector, DimensionalData.AbstractDimMatrix}) =
     invoke(LinearAlgebra.mul!, Tuple{Any, Dimension, AbstractDimArray}, du, dim, u)
+LinearAlgebra.mul!(du::AbstractVecOrMat, dim::Dimension, u::Union{DimensionalData.AbstractDimVector, DimensionalData.AbstractDimMatrix}, α, β) =
+    invoke(LinearAlgebra.mul!, Tuple{Any, Dimension, AbstractDimArray, Any, Any}, du, dim, u, α, β)
 has_mul!(::Dimension) = true

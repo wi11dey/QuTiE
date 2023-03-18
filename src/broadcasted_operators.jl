@@ -12,6 +12,8 @@ function LinearAlgebra.mul!(du::AbstractArray, op::BroadcastedPowerOperator, u::
     du .= op.base.^du
     du
 end
+LinearAlgebra.mul!(du::AbstractVecOrMat, op::BroadcastedPowerOperator, u::AbstractVecOrMat) =
+    invoke(LinearAlgebra.mul!, Tuple{AbstractArray, BroadcastedPowerOperator, AbstractVecOrMat}, du, op, u)
 has_mul!(::BroadcastedPowerOperator) = true
 SymbolicUtils.operation(::BroadcastedPowerOperator) = (.^)
 function SymbolicUtils.show_call(io::IO, ::typeof(.^), args)
@@ -19,3 +21,6 @@ function SymbolicUtils.show_call(io::IO, ::typeof(.^), args)
     print(io, " .^ ")
     SymbolicUtils.print_arg(io, args[2], paren=true)
 end
+
+SciMLOperators.cache_operator(op::BroadcastedPowerOperator, u) =
+    BroadcastedPowerOperator(op.base, cache_operator(op.op))

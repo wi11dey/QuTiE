@@ -9,7 +9,7 @@ struct Derivative{S <: Tuple, Weights <: Union{Nothing, AbstractDimArray}} <: Op
         @inline format(::Type{<: NTuple{1, Any}}, weightedindexes) = weightedindexes
         @inline format(::Type{<: NTuple{2, Any}}, weightedindexes) = Interpolations.symmatrix(weightedindexes)
 
-        dimnums = dimnum.(Ref(ψ), key2dim.(S.parameters))
+        dimnums = dimnum.(Ref(ψ), S.parameters)
         weights = NTuple{M, Interpolations.WeightedAdjIndex}[
             Base.getindex(format(S, Interpolations.weightedindexes(
                 (
