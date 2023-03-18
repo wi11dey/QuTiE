@@ -14,7 +14,7 @@ struct State{N, D <: Tuple, R <: Tuple, Orig <: AbstractArray{ℂ, N}, Na, Me, I
         sz = length.(dims)
         @boundscheck length(data) == prod(sz) || throw(DimensionMismatch("Mismatch between product of dimensions and length of data"))
         reshaped = Base.ReshapedArray(convert(AbstractArray{ℂ}, data) |> vec |> parent, sz, ())
-        original = DimArray(reshaped, dims; refdims=refdims, name=name, metadata=metadata)
+        original = DimArray(reshaped, dims; refdims=refdims, metadata=metadata)
         if DimensionalData.dims(ψ) == dims
             # Fast path:
             interpolated = ψ.interpolated
@@ -102,7 +102,7 @@ function State(op::Operator)
 end
 
 DimensionalData.dimconstructor(dims::Tuple{Length{S}, Vararg{DimensionalData.Dimension}}) where S =
-    S isa Dimension ? State : dimconstructor(Base.tail(dims))
+    S isa Dimension ? State : DimensionalData.dimconstructor(Base.tail(dims))
 
 DimensionalData.show_after(io::IO, mime::MIME, ψ::State) = DimensionalData.show_after(io, mime, ψ.original)
 for method in :(parent, dims, refdims, data, name, metadata, layerdims).args
