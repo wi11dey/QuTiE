@@ -1,1 +1,0 @@
-../Guix System/packages/julia.scm
