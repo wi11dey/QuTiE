@@ -97,11 +97,12 @@ function main(arguments::String...)
     #     end
     # else
     # end
-    # ψ = Observable(ψ₀*ones(axes(H)))
+    # ψ = Observable(ψ₀*))
     # draw(data(ψ)*📊)
     # for (ψ, t) ∈ tuples(integrator)
     #     @show ψ, t
     # end
+    ones(axes(H))
 end
 
 function julia_main()::Cint

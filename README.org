@@ -1,14 +1,9 @@
 #+title: QuTiE
 
-Quantum Toolbox: industry Enhancements
+* Installation
 
-“Better than QuTiP”
-
-Interactive quantum simulator.
-
-* Currently supported
-- Quantum Mechanics
-* Roadmap
-- Quantum Field Theory
-  - Quantum Electrodynamics
-  - Quantum Chromodynamics
+1. Install [[https://julialang.org/][Julia]].
+2. In the project root directory, run
+   #+begin_src shell
+   $ julia
+   #+end_src
