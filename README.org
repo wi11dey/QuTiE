@@ -1,9 +1,0 @@
-#+title: QuTiE
-
-* Installation
-
-1. Install [[https://julialang.org/][Julia]].
-2. In the project root directory, run
-   #+begin_src shell
-   $ julia
-   #+end_src
